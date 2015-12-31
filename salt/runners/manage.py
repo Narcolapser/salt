@@ -14,6 +14,7 @@ import tempfile
 import time
 
 # Import 3rd-party libs
+import salt.ext.six as six
 from salt.ext.six.moves.urllib.request import urlopen as _urlopen  # pylint: disable=no-name-in-module,import-error
 
 # Import salt libs
@@ -23,7 +24,8 @@ import salt.utils
 import salt.utils.minions
 import salt.wheel
 import salt.version
-import salt.ext.six as six
+from salt.utils.event import tagify
+from salt.exceptions import SaltClientError
 
 FINGERPRINT_REGEX = re.compile(r'^([a-f0-9]{2}:){15}([a-f0-9]{2})$')
 
@@ -38,17 +40,19 @@ def status(output=True):
 
         salt-run manage.status
     '''
+    ret = {}
     client = salt.client.get_local_client(__opts__['conf_file'])
-    minions = client.cmd('*', 'test.ping', timeout=__opts__['timeout'])
+    try:
+        minions = client.cmd('*', 'test.ping', timeout=__opts__['timeout'])
+    except SaltClientError as client_error:
+        print(client_error)
+        return ret
 
     key = salt.key.Key(__opts__)
     keys = key.list_keys()
 
-    ret = {}
     ret['up'] = sorted(minions)
     ret['down'] = sorted(set(keys['minions']) - set(minions))
-    if output:
-        __jid_event__.fire_event({'message': ret}, 'progress')
     return ret
 
 
@@ -78,7 +82,11 @@ def key_regen():
         salt-run manage.key_regen
     '''
     client = salt.client.get_local_client(__opts__['conf_file'])
-    client.cmd('*', 'saltutil.regen_keys')
+    try:
+        client.cmd('*', 'saltutil.regen_keys')
+    except SaltClientError as client_error:
+        print(client_error)
+        return False
 
     for root, _, files in os.walk(__opts__['pki_dir']):
         for fn_ in files:
@@ -136,6 +144,8 @@ def up():  # pylint: disable=C0103
 
 def list_state(subset=None, show_ipv4=False, state=None):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are up according to Salt's presence
     detection (no commands will be sent to minions)
 
@@ -159,7 +169,7 @@ def list_state(subset=None, show_ipv4=False, state=None):
     opts = salt.config.client_config(conf_file)
     if opts['transport'] == 'raet':
         event = salt.utils.raetevent.PresenceEvent(__opts__, __opts__['sock_dir'], state=state)
-        data = event.get_event(wait=60, tag=salt.utils.event.tagify('present', 'presence'))
+        data = event.get_event(wait=60, tag=tagify('present', 'presence'))
         key = 'present' if state is None else state
         if not data or key not in data:
             minions = []
@@ -180,6 +190,8 @@ def list_state(subset=None, show_ipv4=False, state=None):
 
 def list_not_state(subset=None, show_ipv4=False, state=None):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are NOT up according to Salt's presence
     detection (no commands will be sent to minions)
 
@@ -241,6 +253,8 @@ def present(subset=None, show_ipv4=False):
 
 def not_present(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.5.0
+
     Print a list of all minions that are NOT up according to Salt's presence
     detection (no commands will be sent)
 
@@ -261,6 +275,8 @@ def not_present(subset=None, show_ipv4=False):
 
 def joined(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are up according to Salt's presence
     detection (no commands will be sent to minions)
 
@@ -281,6 +297,8 @@ def joined(subset=None, show_ipv4=False):
 
 def not_joined(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are NOT up according to Salt's presence
     detection (no commands will be sent)
 
@@ -301,6 +319,8 @@ def not_joined(subset=None, show_ipv4=False):
 
 def allowed(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are up according to Salt's presence
     detection (no commands will be sent to minions)
 
@@ -321,6 +341,8 @@ def allowed(subset=None, show_ipv4=False):
 
 def not_allowed(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are NOT up according to Salt's presence
     detection (no commands will be sent)
 
@@ -341,6 +363,8 @@ def not_allowed(subset=None, show_ipv4=False):
 
 def alived(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are up according to Salt's presence
     detection (no commands will be sent to minions)
 
@@ -361,6 +385,8 @@ def alived(subset=None, show_ipv4=False):
 
 def not_alived(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are NOT up according to Salt's presence
     detection (no commands will be sent)
 
@@ -381,6 +407,8 @@ def not_alived(subset=None, show_ipv4=False):
 
 def reaped(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are up according to Salt's presence
     detection (no commands will be sent to minions)
 
@@ -401,6 +429,8 @@ def reaped(subset=None, show_ipv4=False):
 
 def not_reaped(subset=None, show_ipv4=False):
     '''
+    .. versionadded:: 2015.8.0
+
     Print a list of all minions that are NOT up according to Salt's presence
     detection (no commands will be sent)
 
@@ -417,6 +447,68 @@ def not_reaped(subset=None, show_ipv4=False):
         salt-run manage.not_reaped
     '''
     return list_not_state(subset=subset, show_ipv4=show_ipv4, state='reaped')
+
+
+def get_stats(estate=None, stack='road'):
+    '''
+    Print the stack stats
+
+    estate : None
+        The name of the target estate. Master stats would be requested by default
+
+    stack : 'road'
+        Show stats on either road or lane stack
+        Allowed values are 'road' or 'lane'.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt-run manage.get_stats [estate=alpha_minion] [stack=lane]
+    '''
+    conf_file = __opts__['conf_file']
+    opts = salt.config.client_config(conf_file)
+    if opts['transport'] == 'raet':
+        tag = tagify(stack, 'stats')
+        event = salt.utils.raetevent.StatsEvent(__opts__, __opts__['sock_dir'], tag=tag, estate=estate)
+        stats = event.get_event(wait=60, tag=tag)
+    else:
+        #TODO: implement 0MQ analog
+        stats = 'Not implemented'
+
+    return stats
+
+
+def road_stats(estate=None):
+    '''
+    Print the estate road stack stats
+
+    estate : None
+        The name of the target estate. Master stats would be requested by default
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt-run manage.road_stats [estate=alpha_minion]
+    '''
+    return get_stats(estate=estate, stack='road')
+
+
+def lane_stats(estate=None):
+    '''
+    Print the estate manor lane stack stats
+
+    estate : None
+        The name of the target estate. Master stats would be requested by default
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt-run manage.lane_stats [estate=alpha_minion]
+    '''
+    return get_stats(estate=estate, stack='lane')
 
 
 def safe_accept(target, expr_form='glob'):
@@ -436,7 +528,7 @@ def safe_accept(target, expr_form='glob'):
     ret = ssh_client.cmd(target, 'key.finger', expr_form=expr_form)
 
     failures = {}
-    for minion, finger in ret.items():
+    for minion, finger in six.iteritems(ret):
         if not FINGERPRINT_REGEX.match(finger):
             failures[minion] = finger
         else:
@@ -481,8 +573,13 @@ def versions():
 
         salt-run manage.versions
     '''
+    ret = {}
     client = salt.client.get_local_client(__opts__['conf_file'])
-    minions = client.cmd('*', 'test.version', timeout=__opts__['timeout'])
+    try:
+        minions = client.cmd('*', 'test.version', timeout=__opts__['timeout'])
+    except SaltClientError as client_error:
+        print(client_error)
+        return ret
 
     labels = {
         -1: 'Minion requires update',
@@ -506,7 +603,6 @@ def versions():
     # Add version of Master to output
     version_status[2] = master_version.string
 
-    ret = {}
     for key in version_status:
         if key == 2:
             ret[labels[key]] = version_status[2]
@@ -579,7 +675,7 @@ def bootstrap_psexec(hosts='', master=None, version=None, arch='win32',
 
     installer_url
         URL of minion installer executable. Defaults to the latest version from
-        http://docs.saltstack.com/downloads
+        https://repo.saltstack.com/windows/
 
     username
         Optional user name for login on remote computer.
@@ -598,7 +694,7 @@ def bootstrap_psexec(hosts='', master=None, version=None, arch='win32',
     '''
 
     if not installer_url:
-        base_url = 'http://docs.saltstack.com/downloads/'
+        base_url = 'https://repo.saltstack.com/windows/'
         source = _urlopen(base_url).read()
         salty_rx = re.compile('>(Salt-Minion-(.+?)-(.+)-Setup.exe)</a></td><td align="right">(.*?)\\s*<')
         source_list = sorted([[path, ver, plat, time.strptime(date, "%d-%b-%Y %H:%M")]

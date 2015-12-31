@@ -3,6 +3,9 @@
     :codeauthor: :email:`Rupesh Tare <rupesht@saltstack.com>`
 '''
 
+# Import Python libs
+from __future__ import absolute_import
+
 # Import Salt Testing Libs
 from salttesting import TestCase, skipIf
 from salttesting.mock import (
@@ -20,7 +23,7 @@ USER_LIST = [{'name': 'A'}, {'name': 'B'}]
 
 
 class MockInfluxDBClient(object):
-    def get_database_list(self):
+    def get_list_database(self):
         return DB_LIST
 
     def create_database(self, name):
@@ -29,10 +32,10 @@ class MockInfluxDBClient(object):
     def delete_database(self, name):
         return name
 
-    def switch_db(self, name):
+    def switch_database(self, name):
         return name
 
-    def get_database_users(self):
+    def get_list_users(self):
         return USER_LIST
 
     def get_list_cluster_admins(self):
@@ -245,6 +248,42 @@ class InfluxTestCase(TestCase):
                                          password='root',
                                          host='localhost',
                                          port=8000))
+
+    def test_retention_policy_get(self):
+        client = MockInfluxDBClient()
+        policy = {'name': 'foo'}
+        with patch.object(influx, '_client', MagicMock(return_value=client)):
+            client.get_list_retention_policies = MagicMock(return_value=[policy])
+            self.assertEqual(
+                policy,
+                influx.retention_policy_get(database='db', name='foo')
+            )
+
+    def test_retention_policy_add(self):
+        client = MockInfluxDBClient()
+        with patch.object(influx, '_client', MagicMock(return_value=client)):
+            client.create_retention_policy = MagicMock()
+            self.assertTrue(influx.retention_policy_add(
+                database='db',
+                name='name',
+                duration='30d',
+                replication=1,
+            ))
+            client.create_retention_policy.assert_called_once_with(
+                'name', '30d', 1, 'db', False)
+
+    def test_retention_policy_modify(self):
+        client = MockInfluxDBClient()
+        with patch.object(influx, '_client', MagicMock(return_value=client)):
+            client.alter_retention_policy = MagicMock()
+            self.assertTrue(influx.retention_policy_alter(
+                database='db',
+                name='name',
+                duration='30d',
+                replication=1,
+            ))
+            client.alter_retention_policy.assert_called_once_with(
+                'name', 'db', '30d', 1, False)
 
 if __name__ == '__main__':
     from integration import run_tests

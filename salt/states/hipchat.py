@@ -5,6 +5,8 @@ Send a message to Hipchat
 
 This state is useful for sending messages to Hipchat during state runs.
 
+.. versionadded:: 2015.5.0
+
 .. code-block:: yaml
 
     hipchat-message:
@@ -16,6 +18,7 @@ This state is useful for sending messages to Hipchat during state runs.
         - api_version: v1
 
 The api key can be specified in the master or minion configuration like below:
+
 .. code-block:: yaml
 
     hipchat:
@@ -71,6 +74,7 @@ def send_message(name,
         The message that is to be sent to the Hipchat room.
 
     The following parameters are optional:
+
     api_key
         The api key for Hipchat to use for authentication,
         if not specified in the configuration options of master or minion.

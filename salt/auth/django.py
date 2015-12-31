@@ -2,73 +2,88 @@
 '''
 Provide authentication using Django Web Framework
 
-Django authentication depends on the presence of the django
-framework in the PYTHONPATH, the django project's settings.py file being in
-the PYTHONPATH and accessible via the DJANGO_SETTINGS_MODULE environment
-variable.  This can be hard to debug.
+:depends:   - Django Web Framework
 
-django auth can be defined like any other eauth module:
+Django authentication depends on the presence of the django framework in the
+``PYTHONPATH``, the Django project's ``settings.py`` file being in the
+``PYTHONPATH`` and accessible via the ``DJANGO_SETTINGS_MODULE`` environment
+variable.
 
-external_auth:
-  django:
-    fred:
-      - .*
-      - '@runner'
+Django auth can be defined like any other eauth module:
 
-This will authenticate Fred via django and allow him to run any
-execution module and all runners.
+.. code-block:: yaml
 
-The details of the django auth can also be located inside the django database.  The
-relevant entry in the models.py file would look like this:
+    external_auth:
+      django:
+        fred:
+          - .*
+          - '@runner'
 
-class SaltExternalAuthModel(models.Model):
+This will authenticate Fred via Django and allow him to run any execution
+module and all runners.
 
-  user_fk = models.ForeignKey(auth.User)
-  minion_matcher = models.CharField()
-  minion_fn = models.CharField()
+The authorization details can optionally be located inside the Django database.
+The relevant entry in the ``models.py`` file would look like this:
 
-Then, in the master's config file the external_auth clause should look like
+.. code-block:: python
 
-external_auth:
-  django:
-    ^model: <fully-qualified reference to model class>
+    class SaltExternalAuthModel(models.Model):
+        user_fk = models.ForeignKey(auth.User)
+        minion_matcher = models.CharField()
+        minion_fn = models.CharField()
+
+The :conf_master:`external_auth` clause in the master config would then look
+like this:
+
+.. code-block:: yaml
+
+    external_auth:
+      django:
+        ^model: <fully-qualified reference to model class>
 
 When a user attempts to authenticate via Django, Salt will import the package
-indicated via the keyword '^model'.  That model must have the fields
-indicated above, though the model DOES NOT have to be named 'SaltExternalAuthModel'.
-
-:depends:   - Django Web Framework
+indicated via the keyword ``^model``.  That model must have the fields
+indicated above, though the model DOES NOT have to be named
+'SaltExternalAuthModel'.
 '''
 
 # Import python libs
 from __future__ import absolute_import
 import logging
 
-# Import salt libs
-
-log = logging.getLogger(__name__)
-
+# Import 3rd-party libs
+import salt.ext.six as six
+# pylint: disable=import-error
 try:
     import django
-    import django.conf
-    import django.contrib.auth
     HAS_DJANGO = True
 except Exception as exc:
     # If Django is installed and is not detected, uncomment
     # the following line to display additional information
     #log.warning('Could not load Django auth module. Found exception: {0}'.format(exc))
     HAS_DJANGO = False
+# pylint: enable=import-error
 
-django_auth_class = None
+DJANGO_AUTH_CLASS = None
+
+log = logging.getLogger(__name__)
+
+__virtualname__ = 'django'
+
+
+def __virtual__():
+    if HAS_DJANGO:
+        return __virtualname__
+    return False
 
 
 def django_auth_setup():
     '''
     Prepare the connection to the Django authentication framework
     '''
-    global django_auth_class
+    global DJANGO_AUTH_CLASS
 
-    if django_auth_class is not None:
+    if DJANGO_AUTH_CLASS is not None:
         return
 
     # Versions 1.7 and later of Django don't pull models until
@@ -81,8 +96,8 @@ def django_auth_setup():
         django_module_name = '.'.join(django_model_fullname.split('.')[0:-1])
 
         __import__(django_module_name, globals(), locals(), 'SaltExternalAuthModel')
-        django_auth_class_str = 'django_auth_module.{0}'.format(django_model_name)
-        django_auth_class = eval(django_auth_class_str)  # pylint: disable=W0123
+        DJANGO_AUTH_CLASS_str = 'django_auth_module.{0}'.format(django_model_name)
+        DJANGO_AUTH_CLASS = eval(DJANGO_AUTH_CLASS_str)  # pylint: disable=W0123
 
     if django.VERSION >= (1, 7):
         django.setup()
@@ -92,6 +107,7 @@ def auth(username, password):
     '''
     Simple Django auth
     '''
+    import django.contrib.auth  # pylint: disable=import-error
 
     django_auth_setup()
     user = django.contrib.auth.authenticate(username=username, password=password)
@@ -114,38 +130,46 @@ def retrieve_auth_entries(u=None):
     '''
 
     :param u: Username to filter for
-    :return: Dictionary that can be slotted into the __opts__ structure for eauth that designates the
-             user and his or her ACL
+    :return: Dictionary that can be slotted into the ``__opts__`` structure for
+        eauth that designates the user associated ACL
 
+    Database records such as:
+
+    ===========  ====================     =========
     username     minion_or_fn_matcher     minion_fn
+    ===========  ====================     =========
     fred                                  test.ping
     fred         server1                  network.interfaces
     fred         server1                  raid.list
     fred         server2                  .*
     guru         .*
     smartadmin   server1                  .*
+    ===========  ====================     =========
 
-    Should result in
-    fred:
-      - test.ping
-      - server1:
-          - network.interfaces
-          - raid.list
-      - server2:
+    Should result in an eauth config such as:
+
+    .. code-block:: yaml
+
+        fred:
+          - test.ping
+          - server1:
+              - network.interfaces
+              - raid.list
+          - server2:
+              - .*
+        guru:
           - .*
-    guru:
-      - .*
-    smartadmin:
-      - server1:
-        - .*
+        smartadmin:
+          - server1:
+            - .*
 
     '''
     django_auth_setup()
 
     if u is None:
-        db_records = django_auth_class.objects.all()
+        db_records = DJANGO_AUTH_CLASS.objects.all()
     else:
-        db_records = django_auth_class.objects.filter(user_fk__username=u)
+        db_records = DJANGO_AUTH_CLASS.objects.filter(user_fk__username=u)
     auth_dict = {}
 
     for a in db_records:
@@ -160,7 +184,7 @@ def retrieve_auth_entries(u=None):
             found = False
             for d in auth_dict[a.user_fk.username]:
                 if isinstance(d, dict):
-                    if a.minion_or_fn_matcher in d.keys():
+                    if a.minion_or_fn_matcher in six.iterkeys(d):
                         auth_dict[a.user_fk.username][a.minion_or_fn_matcher].append(a.minion_fn)
                         found = True
             if not found:

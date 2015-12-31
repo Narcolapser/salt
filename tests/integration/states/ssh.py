@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-
 '''
 Test the ssh_known_hosts state
 '''
 
 # Import python libs
+from __future__ import absolute_import
 import os
 import shutil
 
@@ -92,7 +92,7 @@ class SSHKnownHostsStateTest(integration.ModuleCase,
             self.assertNotIn(ret, ('', None))
         except AssertionError:
             raise AssertionError(
-                'Salt return {0!r} is in (\'\', None).'.format(ret)
+                'Salt return \'{0}\' is in (\'\', None).'.format(ret)
             )
         ret = self.run_function(
             'ssh.get_known_host', ['root', GITHUB_IP], config=KNOWN_HOSTS
@@ -101,7 +101,7 @@ class SSHKnownHostsStateTest(integration.ModuleCase,
             self.assertNotIn(ret, ('', None, {}))
         except AssertionError:
             raise AssertionError(
-                'Salt return {0!r} is in (\'\', None,'.format(ret) + ' {})'
+                'Salt return \'{0}\' is in (\'\', None,'.format(ret) + ' {})'
             )
 
     def test_present_fail(self):
@@ -145,7 +145,7 @@ class SSHKnownHostsStateTest(integration.ModuleCase,
 
         # test again
         ret = self.run_state('ssh_known_hosts.absent', test=True, **kwargs)
-        self.assertSaltNoneReturn(ret)
+        self.assertSaltTrueReturn(ret)
 
 
 class SSHAuthStateTests(integration.ModuleCase,

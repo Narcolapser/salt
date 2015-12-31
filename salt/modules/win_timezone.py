@@ -457,9 +457,9 @@ def __virtual__():
     '''
     Only load on windows
     '''
-    if salt.utils.is_windows():
+    if salt.utils.is_windows() and salt.utils.which('tzutil'):
         return __virtualname__
-    return False
+    return (False, "Module win_timezone: tzutil not found or is not on Windows client")
 
 
 def get_zone():

@@ -3,6 +3,8 @@
 HTTP monitoring states
 
 Perform an HTTP query and statefully return the result
+
+.. versionadded:: 2015.5.0
 '''
 from __future__ import absolute_import
 
@@ -18,6 +20,8 @@ __monitor__ = [
 def query(name, match=None, match_type='string', status=None, **kwargs):
     '''
     Perform an HTTP query and statefully return the result
+
+    .. versionadded:: 2015.5.0
     '''
     # Monitoring state, but changes may be made over HTTP
     ret = {'name': name,

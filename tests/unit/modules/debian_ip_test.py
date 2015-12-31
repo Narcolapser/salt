@@ -3,6 +3,9 @@
     :codeauthor: :email:`Jayesh Kariya <jayeshk@saltstack.com>`
 '''
 
+# Import Python libs
+from __future__ import absolute_import
+
 # Import Salt Testing Libs
 from salttesting import TestCase, skipIf
 from salttesting.mock import (
@@ -245,7 +248,7 @@ class DebianIpTestCase(TestCase):
                                                  'service.enable': mock}):
                 self.assertEqual(debian_ip.build_network_settings(),
                                  [u'NETWORKING=yes\n',
-                                  u'HOSTNAME=Salt.saltstack.com\n',
+                                  u'HOSTNAME=Salt\n',
                                   u'DOMAIN=saltstack.com\n'])
 
                 mock = MagicMock(side_effect=jinja2.exceptions.TemplateNotFound

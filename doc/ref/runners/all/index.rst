@@ -10,8 +10,10 @@ Full list of runner modules
     :toctree:
     :template: autosummary.rst.tmpl
 
+    asam
     cache
     cloud
+    ddns
     doc
     drac
     error
@@ -24,11 +26,18 @@ Full list of runner modules
     lxc
     manage
     mine
+    nacl
     network
     pagerduty
     pillar
+    pkg
     queue
+    reactor
+    sdb
+    ssh
     search
+    spacewalk
+    ssh
     state
     survey
     test

@@ -36,7 +36,7 @@ def __virtual__():
     '''
     if salt.utils.which('nft'):
         return 'nftables'
-    return False
+    return (False, 'The nftables execution module failed to load: nftables is not installed.')
 
 
 def _nftables_cmd():
@@ -379,11 +379,11 @@ def get_rule_handle(table='filter', chain=None, rule=None, family='ipv4'):
     rules = re.split('\n+', out)
 
     pat = re.compile(r'{0} # handle (?P<handle>\d+)'.format(rule))
-    for rule in rules:
-        match = pat.search(rule)
+    for r in rules:
+        match = pat.search(r)
         if match:
-            handle = match.group('handle')
-    return handle
+            return match.group('handle')
+    return 'Error: could not find rule {0}'.format(rule)
 
 
 def check(table='filter', chain=None, rule=None, family='ipv4'):

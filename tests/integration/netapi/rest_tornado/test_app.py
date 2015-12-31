@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 
 # Import Python Libs
+from __future__ import absolute_import
+from __future__ import print_function
 import json
 import time
+from distutils.version import StrictVersion  # pylint: disable=import-error,no-name-in-module
 
 # Import Salt Libs
 from salt.netapi.rest_tornado import saltnado
@@ -14,27 +17,23 @@ from salttesting.helpers import ensure_in_syspath
 
 ensure_in_syspath('../../../')
 
-try:
-    import tornado
-    HAS_TORNADO = True
-except ImportError:
-    HAS_TORNADO = False
+import salt.ext.six as six
 
 try:
+    import zmq
     from zmq.eventloop.ioloop import ZMQIOLoop
     HAS_ZMQ_IOLOOP = True
 except ImportError:
     HAS_ZMQ_IOLOOP = False
 
 
-@skipIf(HAS_TORNADO is False, 'Tornado must be installed to run these tests')
 @skipIf(HAS_ZMQ_IOLOOP is False, 'PyZMQ version must be >= 14.0.1 to run these tests.')
+@skipIf(StrictVersion(zmq.__version__) < StrictVersion('14.0.1'), 'PyZMQ must be >= 14.0.1 to run these tests.')
 class TestSaltAPIHandler(SaltnadoTestCase):
     def get_app(self):
-        application = tornado.web.Application([('/', saltnado.SaltAPIHandler)], debug=True)
+        urls = [('/', saltnado.SaltAPIHandler)]
 
-        application.auth = self.auth
-        application.opts = self.opts
+        application = self.build_tornado_app(urls)
 
         application.event_listener = saltnado.EventListener({}, self.opts)
         return application
@@ -51,6 +50,7 @@ class TestSaltAPIHandler(SaltnadoTestCase):
         response_obj = json.loads(response.body)
         self.assertEqual(response_obj['clients'],
                          ['runner',
+                          'runner_async',
                           'local_async',
                           'local',
                           'local_batch']
@@ -78,6 +78,7 @@ class TestSaltAPIHandler(SaltnadoTestCase):
         self.assertEqual(response.headers['Location'], '/login')
 
     # Local client tests
+    @skipIf(True, 'to be reenabled when #23623 is merged')
     def test_simple_local_post(self):
         '''
         Test a basic API of /
@@ -117,6 +118,7 @@ class TestSaltAPIHandler(SaltnadoTestCase):
         self.assertEqual(response_obj['return'], ["No minions matched the target. No command was sent, no jid was assigned."])
 
     # local_batch tests
+    @skipIf(True, 'to be reenabled when #23623 is merged')
     def test_simple_local_batch_post(self):
         '''
         Basic post against local_batch
@@ -137,6 +139,7 @@ class TestSaltAPIHandler(SaltnadoTestCase):
         self.assertEqual(response_obj['return'], [{'minion': True, 'sub_minion': True}])
 
     # local_batch tests
+    @skipIf(True, 'to be reenabled when #23623 is merged')
     def test_full_local_batch_post(self):
         '''
         Test full parallelism of local_batch
@@ -188,11 +191,15 @@ class TestSaltAPIHandler(SaltnadoTestCase):
                               headers={'Content-Type': self.content_type_map['json'],
                                        saltnado.AUTH_TOKEN_HEADER: self.token['token']},
                               )
+
         response_obj = json.loads(response.body)
+        ret = response_obj['return']
+        ret[0]['minions'] = sorted(ret[0]['minions'])
+
         # TODO: verify pub function? Maybe look at how we test the publisher
-        self.assertEqual(len(response_obj['return']), 1)
-        self.assertIn('jid', response_obj['return'][0])
-        self.assertEqual(response_obj['return'][0]['minions'], ['minion', 'sub_minion'])
+        self.assertEqual(len(ret), 1)
+        self.assertIn('jid', ret[0])
+        self.assertEqual(ret[0]['minions'], sorted(['minion', 'sub_minion']))
 
     def test_multi_local_async_post(self):
         low = [{'client': 'local_async',
@@ -209,12 +216,17 @@ class TestSaltAPIHandler(SaltnadoTestCase):
                               headers={'Content-Type': self.content_type_map['json'],
                                        saltnado.AUTH_TOKEN_HEADER: self.token['token']},
                               )
+
         response_obj = json.loads(response.body)
-        self.assertEqual(len(response_obj['return']), 2)
-        self.assertIn('jid', response_obj['return'][0])
-        self.assertIn('jid', response_obj['return'][1])
-        self.assertEqual(response_obj['return'][0]['minions'], ['minion', 'sub_minion'])
-        self.assertEqual(response_obj['return'][1]['minions'], ['minion', 'sub_minion'])
+        ret = response_obj['return']
+        ret[0]['minions'] = sorted(ret[0]['minions'])
+        ret[1]['minions'] = sorted(ret[1]['minions'])
+
+        self.assertEqual(len(ret), 2)
+        self.assertIn('jid', ret[0])
+        self.assertIn('jid', ret[1])
+        self.assertEqual(ret[0]['minions'], sorted(['minion', 'sub_minion']))
+        self.assertEqual(ret[1]['minions'], sorted(['minion', 'sub_minion']))
 
     def test_multi_local_async_post_multitoken(self):
         low = [{'client': 'local_async',
@@ -238,13 +250,18 @@ class TestSaltAPIHandler(SaltnadoTestCase):
                               headers={'Content-Type': self.content_type_map['json'],
                                        saltnado.AUTH_TOKEN_HEADER: self.token['token']},
                               )
+
         response_obj = json.loads(response.body)
-        self.assertEqual(len(response_obj['return']), 3)  # make sure we got 3 responses
-        self.assertIn('jid', response_obj['return'][0])  # the first 2 are regular returns
-        self.assertIn('jid', response_obj['return'][1])
-        self.assertIn('Failed to authenticate', response_obj['return'][2])  # bad auth
-        self.assertEqual(response_obj['return'][0]['minions'], ['minion', 'sub_minion'])
-        self.assertEqual(response_obj['return'][1]['minions'], ['minion', 'sub_minion'])
+        ret = response_obj['return']
+        ret[0]['minions'] = sorted(ret[0]['minions'])
+        ret[1]['minions'] = sorted(ret[1]['minions'])
+
+        self.assertEqual(len(ret), 3)  # make sure we got 3 responses
+        self.assertIn('jid', ret[0])  # the first 2 are regular returns
+        self.assertIn('jid', ret[1])
+        self.assertIn('Failed to authenticate', ret[2])  # bad auth
+        self.assertEqual(ret[0]['minions'], sorted(['minion', 'sub_minion']))
+        self.assertEqual(ret[1]['minions'], sorted(['minion', 'sub_minion']))
 
     def test_simple_local_async_post_no_tgt(self):
         low = [{'client': 'local_async',
@@ -274,20 +291,36 @@ class TestSaltAPIHandler(SaltnadoTestCase):
                               request_timeout=30,
                               )
         response_obj = json.loads(response.body)
-        self.assertEqual(response_obj['return'], [['minion', 'sub_minion']])
+        self.assertEqual(len(response_obj['return']), 1)
+        self.assertEqual(set(response_obj['return'][0]), set(['minion', 'sub_minion']))
+
+    # runner_async tests
+    def test_simple_local_runner_async_post(self):
+        low = [{'client': 'runner_async',
+                'fun': 'manage.up',
+                }]
+        response = self.fetch('/',
+                              method='POST',
+                              body=json.dumps(low),
+                              headers={'Content-Type': self.content_type_map['json'],
+                                       saltnado.AUTH_TOKEN_HEADER: self.token['token']},
+                              connect_timeout=10,
+                              request_timeout=10,
+                              )
+        response_obj = json.loads(response.body)
+        self.assertIn('return', response_obj)
+        self.assertEqual(1, len(response_obj['return']))
+        self.assertIn('jid', response_obj['return'][0])
+        self.assertIn('tag', response_obj['return'][0])
 
 
-@skipIf(HAS_TORNADO is False, 'Tornado must be installed to run these tests')
 @skipIf(HAS_ZMQ_IOLOOP is False, 'PyZMQ version must be >= 14.0.1 to run these tests.')
 class TestMinionSaltAPIHandler(SaltnadoTestCase):
     def get_app(self):
-        application = tornado.web.Application([(r"/minions/(.*)", saltnado.MinionSaltAPIHandler),
-                                               (r"/minions", saltnado.MinionSaltAPIHandler),
-                                               ], debug=True)
-
-        application.auth = self.auth
-        application.opts = self.opts
-
+        urls = [(r"/minions/(.*)", saltnado.MinionSaltAPIHandler),
+                (r"/minions", saltnado.MinionSaltAPIHandler),
+                ]
+        application = self.build_tornado_app(urls)
         application.event_listener = saltnado.EventListener({}, self.opts)
         return application
 
@@ -302,9 +335,10 @@ class TestMinionSaltAPIHandler(SaltnadoTestCase):
         # one per minion
         self.assertEqual(len(response_obj['return'][0]), 2)
         # check a single grain
-        for minion_id, grains in response_obj['return'][0].iteritems():
+        for minion_id, grains in six.iteritems(response_obj['return'][0]):
             self.assertEqual(minion_id, grains['id'])
 
+    @skipIf(True, 'to be reenabled when #23623 is merged')
     def test_get(self):
         response = self.fetch('/minions/minion',
                               method='GET',
@@ -327,11 +361,15 @@ class TestMinionSaltAPIHandler(SaltnadoTestCase):
                               headers={'Content-Type': self.content_type_map['json'],
                                        saltnado.AUTH_TOKEN_HEADER: self.token['token']},
                               )
+
         response_obj = json.loads(response.body)
+        ret = response_obj['return']
+        ret[0]['minions'] = sorted(ret[0]['minions'])
+
         # TODO: verify pub function? Maybe look at how we test the publisher
-        self.assertEqual(len(response_obj['return']), 1)
-        self.assertIn('jid', response_obj['return'][0])
-        self.assertEqual(response_obj['return'][0]['minions'], ['minion', 'sub_minion'])
+        self.assertEqual(len(ret), 1)
+        self.assertIn('jid', ret[0])
+        self.assertEqual(ret[0]['minions'], sorted(['minion', 'sub_minion']))
 
     def test_post_with_client(self):
         # get a token for this test
@@ -345,11 +383,15 @@ class TestMinionSaltAPIHandler(SaltnadoTestCase):
                               headers={'Content-Type': self.content_type_map['json'],
                                        saltnado.AUTH_TOKEN_HEADER: self.token['token']},
                               )
+
         response_obj = json.loads(response.body)
+        ret = response_obj['return']
+        ret[0]['minions'] = sorted(ret[0]['minions'])
+
         # TODO: verify pub function? Maybe look at how we test the publisher
-        self.assertEqual(len(response_obj['return']), 1)
-        self.assertIn('jid', response_obj['return'][0])
-        self.assertEqual(response_obj['return'][0]['minions'], ['minion', 'sub_minion'])
+        self.assertEqual(len(ret), 1)
+        self.assertIn('jid', ret[0])
+        self.assertEqual(ret[0]['minions'], sorted(['minion', 'sub_minion']))
 
     def test_post_with_incorrect_client(self):
         '''
@@ -370,20 +412,17 @@ class TestMinionSaltAPIHandler(SaltnadoTestCase):
         self.assertEqual(response.code, 400)
 
 
-@skipIf(HAS_TORNADO is False, 'Tornado must be installed to run these tests')
 @skipIf(HAS_ZMQ_IOLOOP is False, 'PyZMQ version must be >= 14.0.1 to run these tests.')
 class TestJobsSaltAPIHandler(SaltnadoTestCase):
     def get_app(self):
-        application = tornado.web.Application([(r"/jobs/(.*)", saltnado.JobsSaltAPIHandler),
-                                               (r"/jobs", saltnado.JobsSaltAPIHandler),
-                                               ], debug=True)
-
-        application.auth = self.auth
-        application.opts = self.opts
-
+        urls = [(r"/jobs/(.*)", saltnado.JobsSaltAPIHandler),
+                (r"/jobs", saltnado.JobsSaltAPIHandler),
+                ]
+        application = self.build_tornado_app(urls)
         application.event_listener = saltnado.EventListener({}, self.opts)
         return application
 
+    @skipIf(True, 'to be reenabled when #23623 is merged')
     def test_get(self):
         # test with no JID
         self.http_client.fetch(self.get_url('/jobs'),
@@ -394,16 +433,20 @@ class TestJobsSaltAPIHandler(SaltnadoTestCase):
                                )
         response = self.wait(timeout=30)
         response_obj = json.loads(response.body)['return'][0]
-        for jid, ret in response_obj.iteritems():
-            self.assertIn('Function', ret)
-            self.assertIn('Target', ret)
-            self.assertIn('Target-type', ret)
-            self.assertIn('User', ret)
-            self.assertIn('StartTime', ret)
-            self.assertIn('Arguments', ret)
+        try:
+            for jid, ret in six.iteritems(response_obj):
+                self.assertIn('Function', ret)
+                self.assertIn('Target', ret)
+                self.assertIn('Target-type', ret)
+                self.assertIn('User', ret)
+                self.assertIn('StartTime', ret)
+                self.assertIn('Arguments', ret)
+        except AttributeError as attribute_error:
+            print(json.loads(response.body))
+            raise
 
         # test with a specific JID passed in
-        jid = response_obj.iterkeys().next()
+        jid = next(six.iterkeys(response_obj))
         self.http_client.fetch(self.get_url('/jobs/{0}'.format(jid)),
                                self.stop,
                                method='GET',
@@ -423,19 +466,16 @@ class TestJobsSaltAPIHandler(SaltnadoTestCase):
 
 # TODO: run all the same tests from the root handler, but for now since they are
 # the same code, we'll just sanity check
-@skipIf(HAS_TORNADO is False, 'Tornado must be installed to run these tests')
 @skipIf(HAS_ZMQ_IOLOOP is False, 'PyZMQ version must be >= 14.0.1 to run these tests.')
 class TestRunSaltAPIHandler(SaltnadoTestCase):
     def get_app(self):
-        application = tornado.web.Application([("/run", saltnado.RunSaltAPIHandler),
-                                               ], debug=True)
-
-        application.auth = self.auth
-        application.opts = self.opts
-
+        urls = [("/run", saltnado.RunSaltAPIHandler),
+                ]
+        application = self.build_tornado_app(urls)
         application.event_listener = saltnado.EventListener({}, self.opts)
         return application
 
+    @skipIf(True, 'to be reenabled when #23623 is merged')
     def test_get(self):
         low = [{'client': 'local',
                 'tgt': '*',
@@ -451,17 +491,14 @@ class TestRunSaltAPIHandler(SaltnadoTestCase):
         self.assertEqual(response_obj['return'], [{'minion': True, 'sub_minion': True}])
 
 
-@skipIf(HAS_TORNADO is False, 'Tornado must be installed to run these tests')
 @skipIf(HAS_ZMQ_IOLOOP is False, 'PyZMQ version must be >= 14.0.1 to run these tests.')
 class TestEventsSaltAPIHandler(SaltnadoTestCase):
     def get_app(self):
-        application = tornado.web.Application([(r"/events", saltnado.EventsSaltAPIHandler),
-                                               ], debug=True)
-
-        application.auth = self.auth
-        application.opts = self.opts
-
+        urls = [(r"/events", saltnado.EventsSaltAPIHandler),
+                ]
+        application = self.build_tornado_app(urls)
         application.event_listener = saltnado.EventListener({}, self.opts)
+
         # store a reference, for magic later!
         self.application = application
         self.events_to_fire = 0
@@ -498,15 +535,15 @@ class TestEventsSaltAPIHandler(SaltnadoTestCase):
             self.assertTrue(data.startswith('data: '))
 
 
-@skipIf(HAS_TORNADO is False, 'Tornado must be installed to run these tests')
 @skipIf(HAS_ZMQ_IOLOOP is False, 'PyZMQ version must be >= 14.0.1 to run these tests.')
 class TestWebhookSaltAPIHandler(SaltnadoTestCase):
-    def get_app(self):
-        application = tornado.web.Application([(r"/hook(/.*)?", saltnado.WebhookSaltAPIHandler),
-                                               ], debug=True)
 
-        application.auth = self.auth
-        application.opts = self.opts
+    def get_app(self):
+
+        urls = [(r"/hook(/.*)?", saltnado.WebhookSaltAPIHandler),
+                ]
+
+        application = self.build_tornado_app(urls)
 
         self.application = application
 
@@ -514,14 +551,16 @@ class TestWebhookSaltAPIHandler(SaltnadoTestCase):
         return application
 
     def test_post(self):
-        def verify_event(event):
+        def verify_event(future):
             '''
             Verify that the event fired on the master matches what we sent
             '''
+            event = future.result()
             self.assertEqual(event['tag'], 'salt/netapi/hook')
             self.assertIn('headers', event['data'])
             self.assertEqual(event['data']['post'], {'foo': 'bar'})
         # get an event future
+        self._finished = False  # TODO: remove after some cleanup of the event listener
         event = self.application.event_listener.get_event(self,
                                                           tag='salt/netapi/hook',
                                                           callback=verify_event,

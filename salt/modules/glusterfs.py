@@ -8,11 +8,10 @@ from __future__ import absolute_import
 import logging
 
 # Import 3rd-party libs
-from salt.ext.six.moves import range, shlex_quote as _cmd_quote  # pylint: disable=import-error,redefined-builtin
-try:
-    from shlex import quote as _cmd_quote  # pylint: disable=E0611
-except ImportError:
-    from pipes import quote as _cmd_quote
+# pylint: disable=import-error,redefined-builtin
+from salt.ext.six.moves import range
+from salt.ext.six.moves import shlex_quote as _cmd_quote
+# pylint: enable=import-error,redefined-builtin
 
 # Import salt libs
 import salt.utils
@@ -27,7 +26,19 @@ def __virtual__():
     '''
     if salt.utils.which('gluster'):
         return True
-    return False
+    return (False, 'glusterfs server is not installed')
+
+
+def _get_minor_version():
+    # Set default version to 6 for tests
+    version = 6
+    cmd = 'gluster --version'
+    result = __salt__['cmd.run'](cmd).splitlines()
+    for line_number in range(len(result)):
+        line = result[line_number]
+        if line.startswith('glusterfs'):
+            version = int(line.split()[1].split('.')[1])
+    return version
 
 
 def list_peers():
@@ -105,7 +116,7 @@ def peer(name):
 
 
 def create(name, bricks, stripe=False, replica=False, device_vg=False,
-           transport='tcp', start=False):
+           transport='tcp', start=False, force=False):
     '''
     Create a glusterfs volume.
 
@@ -135,6 +146,9 @@ def create(name, bricks, stripe=False, replica=False, device_vg=False,
 
     start
         Start the volume after creation
+
+    force
+        Force volume creation, this works even if creating in root FS
 
     CLI Example:
 
@@ -174,6 +188,8 @@ def create(name, bricks, stripe=False, replica=False, device_vg=False,
     if transport != 'tcp':
         cmd += 'transport {0} '.format(transport)
     cmd += ' '.join(bricks)
+    if force:
+        cmd += ' force'
 
     log.debug('Clustering command:\n{0}'.format(cmd))
     ret = __salt__['cmd.run'](cmd)
@@ -221,6 +237,8 @@ def status(name):
 
         salt '*' glusterfs.status myvolume
     '''
+    # Get minor version
+    minor_version = _get_minor_version()
     # Get volume status
     cmd = 'gluster volume status {0}'.format(name)
     result = __salt__['cmd.run'](cmd).splitlines()
@@ -240,7 +258,10 @@ def status(name):
                 line = line.rstrip() + result[line_number]
 
             # Parse Brick data
-            brick, port, online, pid = line.split()[1:]
+            if minor_version >= 7:
+                brick, port, port_rdma, online, pid = line.split()[1:]
+            else:
+                brick, port, online, pid = line.split()[1:]
             host, path = brick.split(':')
             data = {'port': port, 'pid': pid, 'host': host, 'path': path}
             if online == 'Y':
@@ -256,7 +277,10 @@ def status(name):
                 line = line.rstrip() + result[line_number]
 
             # Parse NFS Server data
-            host, port, online, pid = line.split()[3:]
+            if minor_version >= 7:
+                host, port, port_rdma, online, pid = line.split()[3:]
+            else:
+                host, port, online, pid = line.split()[3:]
             data = {'port': port, 'pid': pid}
             if online == 'Y':
                 data['online'] = True
@@ -271,7 +295,10 @@ def status(name):
                 line = line.rstrip() + result[line_number]
 
             # Parse NFS Server data
-            host, port, online, pid = line.split()[3:]
+            if minor_version >= 7:
+                host, port, port_rdma, online, pid = line.split()[3:]
+            else:
+                host, port, online, pid = line.split()[3:]
             data = {'port': port, 'pid': pid}
             if online == 'Y':
                 data['online'] = True

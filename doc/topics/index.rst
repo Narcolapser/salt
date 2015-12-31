@@ -118,6 +118,12 @@ https://groups.google.com/forum/#!forum/salt-users
 
 .. _`salt-users mailing list`: https://groups.google.com/forum/#!forum/salt-users
 
+There is also a low-traffic list used to announce new releases
+called `salt-announce`_
+
+https://groups.google.com/forum/#!forum/salt-announce
+
+.. _`salt-announce`: https://groups.google.com/forum/#!forum/salt-announce
 
 IRC
 ===
@@ -135,10 +141,10 @@ If you wish to discuss the development of Salt itself join us in
 ``#salt-devel``.
 
 
-Follow on Github
+Follow on GitHub
 ================
 
-The Salt code is developed via Github. Follow Salt for constant updates on what
+The Salt code is developed via GitHub. Follow Salt for constant updates on what
 is happening in Salt development:
 
 |saltrepo|
@@ -169,7 +175,6 @@ A few examples of salt states from the community:
 
 * https://github.com/blast-hardcheese/blast-salt-states
 * https://github.com/kevingranade/kevingranade-salt-state
-* https://github.com/uggedal/states
 * https://github.com/mattmcclean/salt-openstack/tree/master/salt
 * https://github.com/rentalita/ubuntu-setup/
 * https://github.com/brutasse/states

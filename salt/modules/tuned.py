@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
 '''
+Interface to Red Hat tuned-adm module
+
 :maintainer:    Syed Ali <alicsyed@gmail.com>
 :maturity:      new
-:depends:       cmd.run
+:depends:       tuned-adm
 :platform:      Linux
 '''
 
-import salt.utils
+# Import Python libs
+from __future__ import absolute_import
 import re
+
+# Import Salt libs
+import salt.utils
 
 __func_alias__ = {
     'list_': 'list',
@@ -21,10 +27,9 @@ def __virtual__():
     Check to see if tuned-adm binary is installed on the system
 
     '''
-
     tuned_adm = salt.utils.which('tuned-adm')
     if not tuned_adm:
-        return False
+        return (False, 'The tuned execution module failed to load: the tuned-adm binary is not in the path.')
     return __virtualname__
 
 

@@ -11,11 +11,12 @@ from __future__ import print_function
 from __future__ import absolute_import
 import os
 import sys
-import pprint
 
 # Import salt libs
 import salt.client
 from salt.utils import parsers, print_cli
+from salt.utils.verify import verify_log
+import salt.output
 
 
 class SaltCPCli(parsers.SaltCPOptionParser):
@@ -31,6 +32,7 @@ class SaltCPCli(parsers.SaltCPOptionParser):
 
         # Setup file logging!
         self.setup_logfile_logger()
+        verify_log(self.config)
 
         cp_ = SaltCP(self.config)
         cp_.run()
@@ -102,4 +104,7 @@ class SaltCP(object):
 
         ret = local.cmd(*args)
 
-        pprint.pprint(ret)
+        salt.output.display_output(
+                ret,
+                self.opts.get('output', 'nested'),
+                self.opts)

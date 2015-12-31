@@ -3,6 +3,9 @@
     :codeauthor: :email:`Jayesh Kariya <jayeshk@saltstack.com>`
 '''
 
+# Import Python libs
+from __future__ import absolute_import
+
 # Import Salt Testing Libs
 from salttesting import TestCase, skipIf
 from salttesting.mock import (
@@ -14,11 +17,11 @@ from salt.modules import augeas_cfg
 from salt.exceptions import SaltInvocationError
 # Make sure augeas python interface is installed
 HAS_AUGEAS = augeas_cfg.__virtual__()
-if HAS_AUGEAS:
+if HAS_AUGEAS == 'augeas':
     from augeas import Augeas as _Augeas
 
 
-@skipIf(not HAS_AUGEAS, "augeas python is required for this test case")
+@skipIf(HAS_AUGEAS != 'augeas', "augeas python is required for this test case")
 class AugeasCfgTestCase(TestCase):
     '''
     Test cases for salt.modules.augeas_cfg

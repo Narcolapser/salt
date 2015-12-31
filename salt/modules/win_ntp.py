@@ -23,7 +23,7 @@ def __virtual__():
     This only supports Windows
     '''
     if not salt.utils.is_windows():
-        return False
+        return (False, "Module win_system: module only works on Windows systems")
     return __virtualname__
 
 
@@ -70,7 +70,7 @@ def get_servers():
     lines = __salt__['cmd.run'](cmd, python_shell=False).splitlines()
     for line in lines:
         try:
-            if 'NtpServer' in line:
+            if line.startswith('NtpServer:'):
                 _, ntpsvrs = line.rstrip(' (Local)').split(':', 1)
                 return sorted(ntpsvrs.split())
         except ValueError as e:

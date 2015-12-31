@@ -30,20 +30,13 @@ try:
     # installation time.
     import salt._syspaths as __generated_syspaths  # pylint: disable=no-name-in-module
 except ImportError:
-    class __generated_syspaths(object):
-        __slots__ = ('ROOT_DIR',
-                     'CONFIG_DIR',
-                     'CACHE_DIR',
-                     'SOCK_DIR',
-                     'SRV_ROOT_DIR',
-                     'BASE_FILE_ROOTS_DIR',
-                     'BASE_PILLAR_ROOTS_DIR',
-                     'BASE_MASTER_ROOTS_DIR',
-                     'LOGS_DIR',
-                     'PIDFILE_DIR')
-        ROOT_DIR = CONFIG_DIR = CACHE_DIR = SOCK_DIR = None
-        SRV_ROOT_DIR = BASE_FILE_ROOTS_DIR = BASE_PILLAR_ROOTS_DIR = None
-        BASE_MASTER_ROOTS_DIR = LOGS_DIR = PIDFILE_DIR = None
+    import imp
+    __generated_syspaths = imp.new_module('salt._syspaths')
+    for key in ('ROOT_DIR', 'CONFIG_DIR', 'CACHE_DIR', 'SOCK_DIR',
+                'SRV_ROOT_DIR', 'BASE_FILE_ROOTS_DIR', 'BASE_PILLAR_ROOTS_DIR',
+                'BASE_MASTER_ROOTS_DIR', 'LOGS_DIR', 'PIDFILE_DIR',
+                'SPM_FORMULA_PATH', 'SPM_PILLAR_PATH', 'SPM_REACTOR_PATH'):
+        setattr(__generated_syspaths, key, None)
 
 
 # Let's find out the path of this module
@@ -63,7 +56,7 @@ ROOT_DIR = __generated_syspaths.ROOT_DIR
 if ROOT_DIR is None:
     # The installation time value was not provided, let's define the default
     if __PLATFORM.startswith('win'):
-        ROOT_DIR = r'c:\salt' or '/'
+        ROOT_DIR = r'c:\salt'
     else:
         ROOT_DIR = '/'
 
@@ -75,6 +68,8 @@ if CONFIG_DIR is None:
         CONFIG_DIR = os.path.join(ROOT_DIR, 'usr', 'local', 'etc', 'salt')
     elif 'netbsd' in __PLATFORM:
         CONFIG_DIR = os.path.join(ROOT_DIR, 'usr', 'pkg', 'etc', 'salt')
+    elif 'sunos5' in __PLATFORM:
+        CONFIG_DIR = os.path.join(ROOT_DIR, 'opt', 'local', 'etc', 'salt')
     else:
         CONFIG_DIR = os.path.join(ROOT_DIR, 'etc', 'salt')
 
@@ -110,6 +105,18 @@ PIDFILE_DIR = __generated_syspaths.PIDFILE_DIR
 if PIDFILE_DIR is None:
     PIDFILE_DIR = os.path.join(ROOT_DIR, 'var', 'run')
 
+SPM_FORMULA_PATH = __generated_syspaths.SPM_FORMULA_PATH
+if SPM_FORMULA_PATH is None:
+    SPM_FORMULA_PATH = os.path.join(SRV_ROOT_DIR, 'spm', 'salt')
+
+SPM_PILLAR_PATH = __generated_syspaths.SPM_PILLAR_PATH
+if SPM_PILLAR_PATH is None:
+    SPM_PILLAR_PATH = os.path.join(SRV_ROOT_DIR, 'spm', 'pillar')
+
+SPM_REACTOR_PATH = __generated_syspaths.SPM_REACTOR_PATH
+if SPM_REACTOR_PATH is None:
+    SPM_REACTOR_PATH = os.path.join(SRV_ROOT_DIR, 'spm', 'reactor')
+
 
 __all__ = [
     'ROOT_DIR',
@@ -124,5 +131,8 @@ __all__ = [
     'PIDFILE_DIR',
     'INSTALL_DIR',
     'CLOUD_DIR',
-    'BOOTSTRAP'
+    'BOOTSTRAP',
+    'SPM_FORMULA_PATH',
+    'SPM_PILLAR_PATH',
+    'SPM_REACTOR_PATH'
 ]

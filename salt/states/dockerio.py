@@ -3,6 +3,11 @@
 Manage Docker containers
 ========================
 
+.. deprecated:: 2015.8.0
+    Future feature development will be done only in :mod:`dockerng
+    <salt.states.dockerng>`. See the documentation for this module for
+    information on the deprecation path.
+
 `Docker <https://www.docker.io>`_
 is a lightweight, portable, self-sufficient software container
 wrapper. The base supported wrapper type is
@@ -13,8 +18,8 @@ wrapper. The base supported wrapper type is
 .. note::
 
     This state module requires
-    `docker-py <https://github.com/dotcloud/docker-py>`_
-    which supports `Docker Remote API version 1.6
+    `docker-py <https://github.com/dotcloud/docker-py>`_ version >= 0.6.0
+    which supports `Docker Remote API version 1.12
     <http://docs.docker.io/en/latest/reference/api/docker_remote_api_v1.6>`_.
 
 Available Functions
@@ -69,14 +74,15 @@ Available Functions
       my_service:
         docker.running:
           - container: mysuperdocker
+          - image: corp/mysuperdocker_img
           - port_bindings:
-              "5000/tcp":
+            - "5000/tcp":
                   HostIp: ""
                   HostPort: "5000"
 
   .. note::
 
-      The ``port_bindings`` argument above is a dictionary. The double
+      The ``ports`` argument above is a dictionary. The double
       indentation is required for PyYAML to load the data structure
       properly as a python dictionary. More information can be found
       :ref:`here <nested-dict-indentation>`
@@ -94,9 +100,33 @@ Available Functions
 
       /finish-install.sh:
         docker.run:
-          - container: mysuperdocker
+          - cid: mysuperdocker
           - unless: grep -q something /var/log/foo
           - docker_unless: grep -q done /install_log
+
+Use Cases
+---------
+
+   Ensures the container is running with the latest image available
+
+   .. code-block:: yaml
+
+      my-service-image:
+        docker.pulled:
+          - name: registry/my-service:latest
+          - force: true
+
+      my-service-container:
+        docker.installed:
+          - image: registry/my-service:latest
+          - watch:
+            - docker: my-service-image
+
+      my-service:
+        docker.running:
+          - container: my-service-container
+          - watch:
+            - docker: my-service-container
 
 .. note::
 
@@ -124,7 +154,7 @@ __virtualname__ = 'docker'
 
 def __virtual__():
     '''
-    Only load if the docker libs are available.
+    Only load if the dockerio execution module is available
     '''
     if 'docker.version' in __salt__:
         return __virtualname__
@@ -179,6 +209,110 @@ def _invalid(exec_status=None, name='', comment='', changes=None):
                        result=False)
 
 
+def _get_image_name(image, tag):
+    if ':' not in image:
+        # backward compatibility: name could be already tagged
+        return ':'.join((image, tag))
+    return image
+
+
+def _parse_volumes(volumes):
+    '''
+    Parse a given volumes state specification for later use in
+    modules.docker.create_container(). This produces a dict that can be directly
+    consumed by the Docker API /containers/create.
+
+    Note: this only really exists for backwards-compatibility, and because
+    modules.dockerio.start() currently takes a binds argument.
+
+    volumes
+        A structure containing information about the volumes to be included in the
+        container that will be created, either:
+            - a bare dictionary
+            - a list of dictionaries and lists
+
+        .. code-block:: yaml
+
+            # bare dict style
+            - volumes:
+                /usr/local/etc/ssl/certs/example.crt:
+                  bind: /etc/ssl/certs/com.example.internal.crt
+                  ro: True
+                /var/run:
+                  bind: /var/run/host/
+                  ro: False
+
+            # list of dicts style:
+            - volumes:
+              - /usr/local/etc/ssl/certs/example.crt:
+                  bind: /etc/ssl/certs/com.example.internal.crt
+                  ro: True
+              - /var/run: /var/run/host/ # read-write bound volume
+              - /var/lib/mysql # un-bound, container-only volume
+
+        note: bind mounts specified like "/etc/timezone:/tmp/host_tz" will fall
+        through this parser.
+
+    Returns a dict of volume specifications:
+
+        .. code-block:: yaml
+
+            {
+              'bindvols': {
+                '/usr/local/etc/ssl/certs/example.crt': {
+                  'bind': '/etc/ssl/certs/com.example.internal.crt',
+                  'ro': True
+                  },
+                '/var/run/': {
+                  'bind': '/var/run/host',
+                  'ro': False
+                },
+              },
+              'contvols': [ '/var/lib/mysql/' ]
+            }
+
+    '''
+    log.trace("Parsing given volumes dict: " + str(volumes))
+    bindvolumes = {}
+    contvolumes = []
+    if isinstance(volumes, dict):
+        # If volumes as a whole is a dict, then there's no way to specify a non-bound volume
+        # so we exit early and assume the dict is properly formed.
+        bindvolumes = volumes
+    if isinstance(volumes, list):
+        for vol in volumes:
+            if isinstance(vol, dict):
+                for volsource, voldef in vol.items():
+                    if isinstance(voldef, dict):
+                        target = voldef['bind']
+                        read_only = voldef.get('ro', False)
+                    else:
+                        target = str(voldef)
+                        read_only = False
+                    source = volsource
+            else:  # isinstance(vol, dict)
+                if ':' in vol:
+                    volspec = vol.split(':')
+                    source = volspec[0]
+                    target = volspec[1]
+                    read_only = False
+                    try:
+                        if len(volspec) > 2:
+                            read_only = volspec[2] == "ro"
+                    except IndexError:
+                        pass
+                else:
+                    contvolumes.append(str(vol))
+                    continue
+            bindvolumes[source] = {
+                'bind': target,
+                'ro': read_only
+            }
+    result = {'bindvols': bindvolumes, 'contvols': contvolumes}
+    log.trace("Finished parsing volumes, with result: " + str(result))
+    return result
+
+
 def mod_watch(name, sfun=None, *args, **kw):
     if sfun == 'built':
         # Needs to refresh the image
@@ -203,10 +337,19 @@ def mod_watch(name, sfun=None, *args, **kw):
                              comment=comment)
         return status
     elif sfun == 'running':
-        # Force a restart against new container
-        restarter = __salt__['docker.restart']
-        status = _ret_status(restarter(kw['container']), name=name,
-                             changes={name: True})
+        # Force a restart or kill the container
+        container = kw.get('container', name)
+        kill_signal = kw.get('kill_signal')
+        if kill_signal:
+            killer = __salt__['docker.kill']
+            status = _ret_status(killer(container, signal=kill_signal),
+                                 name=name,
+                                 changes={name: True})
+        else:
+            restarter = __salt__['docker.restart']
+            status = _ret_status(restarter(container),
+                                 name=name,
+                                 changes={name: True})
         return status
 
     return {'name': name,
@@ -250,18 +393,16 @@ def pulled(name,
         Set to ``True`` to allow connections to non-HTTPS registries. Default ``False``.
     '''
 
-    if tag:
-        name = '{0}:{1}'.format(name, tag)
-
     inspect_image = __salt__['docker.inspect_image']
-    image_infos = inspect_image('{0}:{1}'.format(name, tag))
+    image_name = _get_image_name(name, tag)
+    image_infos = inspect_image(image_name)
     if image_infos['status'] and not force:
         return _valid(
             name=name,
-            comment='Image already pulled: {0}:{1}'.format(name, tag))
+            comment='Image already pulled: {0}'.format(image_name))
 
-    if __opts__['test'] and force:
-        comment = 'Image {0}:{1} will be pulled'.format(name, tag)
+    if __opts__['test']:
+        comment = 'Image {0} will be pulled'.format(image_name)
         return _ret_status(name=name, comment=comment)
 
     previous_id = image_infos['out']['Id'] if image_infos['status'] else None
@@ -270,9 +411,11 @@ def pulled(name,
     if previous_id != returned['id']:
         changes = {name: {'old': previous_id,
                           'new': returned['id']}}
+        comment = 'Image {0} pulled'.format(image_name)
     else:
         changes = {}
-    return _ret_status(returned, name, changes=changes)
+        comment = ''
+    return _ret_status(returned, name, changes=changes, comment=comment)
 
 
 def pushed(name, tag='latest', insecure_registry=False):
@@ -301,8 +444,9 @@ def pushed(name, tag='latest', insecure_registry=False):
         Set to ``True`` to allow connections to non-HTTPS registries. Default ``False``.
     '''
 
+    image_name = _get_image_name(name, tag)
     if __opts__['test']:
-        comment = 'Image {0}:{1} will be pushed'.format(name, tag)
+        comment = 'Image {0} will be pushed'.format(image_name)
         return _ret_status(name=name, comment=comment)
 
     push = __salt__['docker.push']
@@ -315,12 +459,15 @@ def pushed(name, tag='latest', insecure_registry=False):
     return _ret_status(returned, name, changes=changes)
 
 
-def loaded(name, source=None, source_hash='', force=False):
+def loaded(name, tag='latest', source=None, source_hash='', force=False):
     '''
     Load an image into the local docker registry (`docker load`)
 
     name
         Name of the docker image
+
+    tag
+        tag of the image (defaults to 'latest')
 
     source
         The source .tar file to download to the minion, created by docker save
@@ -332,61 +479,61 @@ def loaded(name, source=None, source_hash='', force=False):
 
         .. note::
 
-            See first the documentation for salt file.managed
-            <http://docs.saltstack.com/en/latest/ref/states/all/_
-            salt.states.file.html#salt.states.file.managed>
+            See first the documentation for Salt `file.managed
+            <http://docs.saltstack.com/en/latest/ref/states/all/salt.states.file.html#salt.states.file.managed>`_
 
     source_hash
         This can be one of the following:
             1. a source hash string
             2. the URI of a file that contains source hash strings
 
-            .. note::
-
-                See first the documentation for salt file.managed
-                <http://docs.saltstack.com/en/latest/ref/states/all/_
-                salt.states.file.html#salt.states.file.managed>
-
     force
         Load even if the image exists
     '''
 
     inspect_image = __salt__['docker.inspect_image']
-    image_infos = inspect_image(name)
+    image_name = _get_image_name(name, tag)
+    image_infos = inspect_image(image_name)
     if image_infos['status'] and not force:
         return _valid(
             name=name,
-            comment='Image already loaded: {0}'.format(name))
+            comment='Image already loaded: {0}'.format(image_name))
+
+    if __opts__['test']:
+        comment = 'Image {0} will be loaded'.format(image_name)
+        return _ret_status(name=name, comment=comment)
 
     tmp_filename = salt.utils.mkstemp()
     __salt__['state.single']('file.managed',
-                            name=tmp_filename,
-                            source=source,
-                            source_hash=source_hash)
+                             name=tmp_filename,
+                             source=source,
+                             source_hash=source_hash)
     changes = {}
 
     if image_infos['status']:
         changes['old'] = image_infos['out']['Id']
         remove_image = __salt__['docker.remove_image']
-        remove_info = remove_image(name)
+        remove_info = remove_image(image_name)
         if not remove_info['status']:
             return _invalid(name=name,
-                    comment='Image could not be removed: {0}'.format(name))
+                            comment='Image could not be removed: {0}'.format(name))
 
     load = __salt__['docker.load']
     returned = load(tmp_filename)
 
-    image_infos = inspect_image(name)
+    image_infos = inspect_image(image_name)
     if image_infos['status']:
         changes['new'] = image_infos['out']['Id']
     else:
-        return _invalid(name=name,
-                        comment='Image {0} was not loaded into docker'.format(name))
+        return _invalid(
+            name=name,
+            comment='Image {0} was not loaded into docker'.format(image_name))
 
     return _ret_status(returned, name, changes=changes)
 
 
 def built(name,
+          tag='latest',
           path=None,
           quiet=False,
           nocache=False,
@@ -400,21 +547,25 @@ def built(name,
     name
         Name of the image
 
+    tag
+        tag of the image (defaults to 'latest')
+
     path
         URL (e.g. `url/branch/docker_dir/dockerfile`)
         or filesystem path to the dockerfile
 
     '''
     inspect_image = __salt__['docker.inspect_image']
-    image_infos = inspect_image(name)
+    image_name = _get_image_name(name, tag)
+    image_infos = inspect_image(image_name)
     if image_infos['status'] and not force:
         return _valid(
             name=name,
             comment='Image already built: {0}, id: {1}'.format(
-                name, image_infos['out']['Id']))
+                image_name, image_infos['out']['Id']))
 
-    if __opts__['test'] and force:
-        comment = 'Image {0} will be built'.format(name)
+    if __opts__['test']:
+        comment = 'Image {0} will be built'.format(image_name)
         return {'name': name,
                 'changes': {},
                 'result': None,
@@ -422,7 +573,7 @@ def built(name,
 
     previous_id = image_infos['out']['Id'] if image_infos['status'] else None
     build = __salt__['docker.build']
-    kw = dict(tag=name,
+    kw = dict(tag=image_name,
               path=path,
               quiet=quiet,
               nocache=nocache,
@@ -433,22 +584,26 @@ def built(name,
     if previous_id != returned['id']:
         changes = {name: {'old': previous_id,
                           'new': returned['id']}}
+        comment = 'Image {0} built'.format(image_name)
     else:
         changes = {}
+        comment = ''
     return _ret_status(exec_status=returned,
                        name=name,
-                       changes=changes)
+                       changes=changes,
+                       comment=comment)
 
 
 def installed(name,
               image,
+              tag='latest',
               command=None,
               hostname=None,
               user=None,
               detach=True,
               stdin_open=False,
               tty=False,
-              mem_limit=0,
+              mem_limit=None,
               ports=None,
               environment=None,
               dns=None,
@@ -468,6 +623,9 @@ def installed(name,
     image
         Image from which to build this container
 
+    tag
+        tag of the image (defaults to 'latest')
+
     environment
         Environment variables for the container, either
             - a mapping of key, values
@@ -477,12 +635,11 @@ def installed(name,
             - a port to map
             - a mapping of mapping portInHost : PortInContainer
     volumes
-        List of volumes
+        List of volumes (see notes for the running function)
 
     For other parameters, see absolutely first the salt.modules.dockerio
-    execution module and the docker-py python bindings for docker
-    documentation
-    <https://github.com/dotcloud/docker-py#api>`_ for
+    execution module and the `docker-py python bindings for docker
+    documentation <https://github.com/dotcloud/docker-py#api>`_ for
     `docker.create_container`.
 
     .. note::
@@ -492,15 +649,21 @@ def installed(name,
     ins_image = __salt__['docker.inspect_image']
     ins_container = __salt__['docker.inspect_container']
     create = __salt__['docker.create_container']
-    iinfos = ins_image(image)
+    image_name = _get_image_name(image, tag)
+    iinfos = ins_image(image_name)
     if not iinfos['status']:
-        return _invalid(comment='image "{0}" does not exist'.format(image))
+        return _invalid(comment='Image "{0}" does not exist'.format(image_name))
     cinfos = ins_container(name)
     already_exists = cinfos['status']
     # if container exists but is not started, try to start it
     if already_exists:
-        return _valid(comment='image {0!r} already exists'.format(name))
-    dports, dvolumes, denvironment = {}, [], {}
+        return _valid(comment='Container {0!r} already exists'.format(name))
+    dports, denvironment = {}, {}
+
+    if __opts__['test']:
+        comment = 'Container {0!r} will be created'.format(name)
+        return _ret_status(name=name, comment=comment)
+
     if not ports:
         ports = []
     if not volumes:
@@ -519,15 +682,13 @@ def installed(name,
         else:
             for k in p:
                 dports[str(p)] = {}
-    for p in volumes:
-        vals = []
-        if not isinstance(p, dict):
-            vals.append('{0}'.format(p))
-        else:
-            for k in p:
-                vals.append('{0}:{1}'.format(k, p[k]))
-        dvolumes.extend(vals)
-    a, kw = [image], dict(
+
+    parsed_volumes = _parse_volumes(volumes)
+    bindvolumes = parsed_volumes['bindvols']
+    contvolumes = parsed_volumes['contvols']
+
+    kw = dict(
+        binds=bindvolumes,
         command=command,
         hostname=hostname,
         user=user,
@@ -538,12 +699,12 @@ def installed(name,
         ports=dports,
         environment=denvironment,
         dns=dns,
-        volumes=dvolumes,
+        volumes=contvolumes,
         volumes_from=volumes_from,
         name=name,
         cpu_shares=cpu_shares,
         cpuset=cpuset)
-    out = create(*a, **kw)
+    out = create(image_name, **kw)
     # if container has been created, even if not started, we mark
     # it as installed
     changes = 'Container created'
@@ -575,6 +736,10 @@ def absent(name):
         changes[cid] = {}
         is_running = __salt__['docker.is_running'](cid)
 
+        if __opts__['test']:
+            comment = 'Container {0!r} will be stopped and destroyed'.format(cid)
+            return _ret_status(name=name, comment=comment)
+
         # Stop container gracefully, if running
         if is_running:
             changes[cid]['old'] = 'running'
@@ -588,37 +753,39 @@ def absent(name):
                 is_gone = __salt__['docker.exists'](cid)
                 if is_gone:
                     return _valid(comment=('Container {0!r}'
-                                           ' was stopped and destroyed, '.format(cid)),
-                                           changes={name: True})
+                                  ' was stopped and destroyed, '.format(cid)),
+                                  changes={name: True})
                 else:
                     return _valid(comment=('Container {0!r}'
-                                           ' was stopped but could not be destroyed,'.format(cid)),
-                                           changes={name: True})
+                                  ' was stopped but could not be destroyed,'.format(cid)),
+                                  changes={name: True})
         else:
             __salt__['docker.remove_container'](cid)
             is_gone = __salt__['docker.exists'](cid)
             if is_gone:
                 return _valid(comment=('Container {0!r}'
-                                       ' is stopped and was destroyed, '.format(cid)),
-                                       changes={name: True})
+                              'is stopped and was destroyed, '.format(cid)),
+                              changes={name: True})
             else:
                 return _valid(comment=('Container {0!r}'
-                                       ' is stopped but could not be destroyed,'.format(cid)),
-                                       changes={name: True})
+                              ' is stopped but could not be destroyed,'.format(cid)),
+                              changes={name: True})
     else:
         return _valid(comment="Container {0!r} not found".format(name))
 
 
-def present(name, image=None, is_latest=False):
+def present(name, image=None, tag='latest', is_latest=False):
     '''
     If a container with the given name is not present, this state will fail.
-    Supports optionally checking for specific image/version
+    Supports optionally checking for specific image/tag
     (`docker inspect`)
 
     name:
         container id
     image:
         image the container should be running (defaults to any)
+    tag:
+        tag of the image (defaults to 'latest')
     is_latest:
         also check if the container runs the latest version of the image (
         latest defined as the latest pulled onto the local machine)
@@ -633,12 +800,13 @@ def present(name, image=None, is_latest=False):
         return _invalid(comment='Container {0} not found'.format(cid or name))
     if cinfos['status'] and image is None:
         return _valid(comment='Container {0} exists'.format(cid))
-    if cinfos['status'] and cinfos['out']['Config']["Image"] == image and not is_latest:
-        return _valid(comment='Container {0} exists and has image {1}'.format(cid, image))
+    image_name = _get_image_name(image, tag)
+    if cinfos['status'] and cinfos['out']['Config']["Image"] == image_name and not is_latest:
+        return _valid(comment='Container {0} exists and has image {1}'.format(cid, image_name))
     ins_image = __salt__['docker.inspect_image']
-    iinfos = ins_image(image)
+    iinfos = ins_image(image_name)
     if cinfos['status'] and cinfos['out']['Image'] == iinfos['out']['Id']:
-        return _valid(comment='Container {0} exists and has latest version of image {1}'.format(cid, image))
+        return _valid(comment='Container {0} exists and has latest version of image {1}'.format(cid, image_name))
     return _invalid(comment='Container {0} found with wrong image'.format(cid or name))
 
 
@@ -690,7 +858,7 @@ def run(name,
             if not onlyif:
                 return valid(comment='onlyif execution failed')
         elif isinstance(onlyif, string_types):
-            if retcode(cid, onlyif) != 0:
+            if not __salt__['cmd.retcode'](onlyif) == 0:
                 return valid(comment='onlyif execution failed')
 
     if unless is not None:
@@ -698,7 +866,7 @@ def run(name,
             if unless:
                 return valid(comment='unless execution succeeded')
         elif isinstance(unless, string_types):
-            if retcode(cid, unless) == 0:
+            if __salt__['cmd.retcode'](unless) == 0:
                 return valid(comment='unless execution succeeded')
 
     if docked_onlyif is not None:
@@ -706,7 +874,7 @@ def run(name,
             if not docked_onlyif:
                 return valid(comment='docked_onlyif execution failed')
         elif isinstance(docked_onlyif, string_types):
-            if retcode(cid, docked_onlyif) != 0:
+            if not retcode(cid, docked_onlyif):
                 return valid(comment='docked_onlyif execution failed')
 
     if docked_unless is not None:
@@ -714,8 +882,13 @@ def run(name,
             if docked_unless:
                 return valid(comment='docked_unless execution succeeded')
         elif isinstance(docked_unless, string_types):
-            if retcode(cid, docked_unless) == 0:
+            if retcode(cid, docked_unless):
                 return valid(comment='docked_unless execution succeeded')
+
+    if __opts__['test']:
+        comment = 'Command {0!r} will be executed on container {1}'.format(name, cid)
+        return _ret_status(name=name, comment=comment)
+
     result = drun_all(cid, name)
     if result['status']:
         return valid(comment=result['comment'])
@@ -738,6 +911,7 @@ def script(*args, **kw):
 
 def running(name,
             image,
+            tag='latest',
             container=None,
             command=None,
             hostname=None,
@@ -745,7 +919,7 @@ def running(name,
             detach=True,
             stdin_open=False,
             tty=False,
-            mem_limit=0,
+            mem_limit=None,
             ports=None,
             environment=None,
             dns=None,
@@ -763,6 +937,7 @@ def running(name,
             restart_policy=None,
             cpu_shares=None,
             cpuset=None,
+            kill_signal=None,
             *args, **kwargs):
     '''
     Ensure that a container is running. If the container does not exist, it
@@ -773,6 +948,9 @@ def running(name,
 
     image
         Image from which to build this container
+
+    tag
+        tag of the image (defaults to 'latest')
 
     environment
         Environment variables for the container, either
@@ -797,44 +975,47 @@ def running(name,
     volumes
         List of volumes to mount or create in the container (like ``-v`` of ``docker run`` command),
         mapping host directory to container directory.
-        To create a volume in the container:
+
+        To specify a volume in the container in terse list format:
 
         .. code-block:: yaml
 
             - volumes:
-              - "/var/log/service"
+              - "/var/log/service" # container-only volume
+              - "/srv/timezone:/etc/timezone" # bound volume
+              - "/usr/local/etc/passwd:/etc/passwd:ro" # read-only bound volume
 
-        For read-write mounting, use the short form (note that the notion of
+        You can also use the short dictionary form (note that the notion of
         source:target from docker is preserved):
 
         .. code-block:: yaml
 
             - volumes:
-              - /var/log/service: /var/log/service
+              - /var/log/service: /var/log/service # mandatory read-write implied
 
-        Or, to specify read-only mounting, use the extended form:
+        Or, alternatively, to specify read-only mounting, use the extended form:
 
         .. code-block:: yaml
 
             - volumes:
               - /home/user1:
-                bind: /mnt/vol2
-                ro: true
+                  bind: /mnt/vol2
+                  ro: True
               - /var/www:
-                bind: /mnt/vol1
-                ro: false
+                  bind: /mnt/vol1
+                  ro: False
 
-        Or (mostly for backwards compatibility) a dict style
+        Or (for backwards compatibility) another dict style:
 
         .. code-block:: yaml
 
             - volumes:
-              /home/user1:
-                bind: /mnt/vol2
-                ro: true
-              /var/www:
-                bind: /mnt/vol1
-                ro: false
+                /home/user1:
+                  bind: /mnt/vol2
+                  ro: True
+                /var/www:
+                  bind: /mnt/vol1
+                  ro: False
 
     volumes_from
         List of containers to share volumes with
@@ -889,6 +1070,29 @@ def running(name,
         .. code-block:: yaml
 
             - cpuset: '0-3'
+    kill_signal
+        If defined, its value will be sent as a kill signal to the running
+        container. i.e. It will use client.kill(signal=kill_signal)
+        instead of client.restart(), when the state is triggered by a watcher
+        requisite.
+
+        possible use case: Soft reload of nginx
+
+        .. code-block:: yaml
+
+            nginx:
+              docker.running:
+                - image: some-fictional-registry.com/nginx
+                - tag: latest
+                - kill_signal: SIGHUP
+                - watch:
+                  - file: /etc/nginx/nginx.conf
+
+        This state will ask nginx to reload (instead of restart)
+        each time the /etc/nginx/nginx.conf is modified.
+
+        .. versionadded:: 2015.8.0
+
 
     For other parameters, see salt.modules.dockerio execution module
     and the docker-py python bindings for docker documentation
@@ -899,23 +1103,55 @@ def running(name,
         This command does not verify that the named container
         is running the specified image.
     '''
-    if container is not None:
-        name = container
+    if container is None:
+        container = name
     ins_image = __salt__['docker.inspect_image']
     ins_container = __salt__['docker.inspect_container']
     create = __salt__['docker.create_container']
-    iinfos = ins_image(image)
+    image_name = _get_image_name(image, tag)
+    iinfos = ins_image(image_name)
+    image_exists = iinfos['status']
+
+    if not image_exists:
+        return _invalid(comment='image "{0}" does not exists'.format(image_name))
+
     cinfos = ins_container(name)
     already_exists = cinfos['status']
-    image_exists = iinfos['status']
-    is_running = False
-    if already_exists:
-        is_running = __salt__['docker.is_running'](container)
+    already_exists_with_same_image = (
+        # if container is known by name,
+        already_exists
+        # and the container is based on expected image,
+        and cinfos['out']['Image'] == iinfos['out']['Id']
+        # then assume it already exists.
+    )
+
+    is_running = __salt__['docker.is_running'](container)
+
     # if container exists but is not started, try to start it
-    if already_exists and (is_running or not start):
+    if already_exists_with_same_image and (is_running or not start):
         return _valid(comment='container {0!r} already exists'.format(name))
-    if not image_exists:
-        return _invalid(comment='image "{0}" does not exist'.format(image))
+    if not already_exists_with_same_image and already_exists:
+        # Outdated container: It means it runs against an old image.
+        # We're gonna have to stop and remove the old container, to let
+        # the name available for the new one.
+        if __opts__['test']:
+            comment = 'Will replace outdated container {0!r}'.format(name)
+            return _ret_status(name=name, comment=comment)
+        if is_running:
+            stop_status = __salt__['docker.stop'](name)
+            if not stop_status['status']:
+                return _invalid(comment='Failed to stop outdated container {0!r}'.format(name))
+
+        remove_status = __salt__['docker.remove_container'](name)
+        if not remove_status['status']:
+            return _invalid(comment='Failed to remove outdated container {0!r}'.format(name))
+        already_exists = False
+        # now it's clear, the name is available for the new container
+
+    if __opts__['test']:
+        comment = 'Will create container {0!r}'.format(name)
+        return _ret_status(name=name, comment=comment)
+
     # parse input data
     exposeports, bindports, contvolumes, bindvolumes, denvironment, changes = [], {}, [], {}, {}, []
     if not ports:
@@ -946,10 +1182,9 @@ def running(name,
                 else:
                     target = str(vol[source])
                     read_only = False
-                bindvolumes[source] = {
-                'bind': target,
-                'ro': read_only
-                }
+                bindvolumes[source] = {'bind': target,
+                                       'ro': read_only
+                                       }
             else:
                 # assume just an own volumes
                 contvolumes.append(str(vol))
@@ -960,7 +1195,7 @@ def running(name,
         for port in ports:
             if isinstance(port, dict):
                 container_port = list(port.keys())[0]
-                #find target
+                # find target
                 if isinstance(port[container_port], dict):
                     host_port = port[container_port]['HostPort']
                     host_ip = port[container_port].get('HostIp', '0.0.0.0')
@@ -972,25 +1207,30 @@ def running(name,
                     'HostIp': host_ip
                 }
             else:
-                #assume just a port to expose
+                # assume just a port to expose
                 exposeports.append(str(port))
+
+    parsed_volumes = _parse_volumes(volumes)
+    bindvolumes = parsed_volumes['bindvols']
+    contvolumes = parsed_volumes['contvols']
+
     if not already_exists:
-        args, kwargs = [image], dict(
-                        command=command,
-                        hostname=hostname,
-                        user=user,
-                        detach=detach,
-                        stdin_open=stdin_open,
-                        tty=tty,
-                        mem_limit=mem_limit,
-                        ports=exposeports,
-                        environment=denvironment,
-                        dns=dns,
-                        volumes=contvolumes,
-                        name=name,
-                        cpu_shares=cpu_shares,
-                        cpuset=cpuset)
-        out = create(*args, **kwargs)
+        kwargs = dict(command=command,
+                      hostname=hostname,
+                      user=user,
+                      detach=detach,
+                      stdin_open=stdin_open,
+                      tty=tty,
+                      mem_limit=mem_limit,
+                      ports=exposeports,
+                      environment=denvironment,
+                      dns=dns,
+                      binds=bindvolumes,
+                      volumes=contvolumes,
+                      name=name,
+                      cpu_shares=cpu_shares,
+                      cpuset=cpuset)
+        out = create(image_name, **kwargs)
         # if container has been created, even if not started, we mark
         # it as installed
         try:
@@ -1022,10 +1262,8 @@ def running(name,
             if is_running:
                 changes.append('Container {0!r} started.\n'.format(name))
             else:
-                return _invalid(
-                        comment=(
-                        'Container {0!r} cannot be started\n{1!s}'
-                        .format(name, started['out'],)))
+                return _invalid(comment=('Container {0!r} cannot be started\n{1!s}'
+                                         .format(name, started['out'],)))
         else:
             changes.append('Container {0!r} started.\n'.format(name))
-    return _valid(comment=','.join(changes), changes={name: True})
+    return _valid(comment='\n'.join(changes), changes={name: True})

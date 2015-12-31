@@ -332,6 +332,7 @@ def dead(name,
                 bin_env=bin_env
             )}
             ret.update(_check_error(result, comment))
+            ret['changes'][name] = comment
             log.debug(six.text_type(result))
     return ret
 
@@ -341,7 +342,8 @@ def mod_watch(name,
               update=False,
               user=None,
               conf_file=None,
-              bin_env=None):
+              bin_env=None,
+              **kwargs):
     # Always restart on watch
     return running(
         name,

@@ -4,6 +4,9 @@ Top level package command wrapper, used to translate the os detected by grains
 to the correct service manager
 '''
 
+# Import Python libs
+from __future__ import absolute_import
+
 # Define the module's virtual name
 __virtualname__ = 'service'
 
@@ -14,7 +17,8 @@ def __virtual__():
     '''
     if __grains__['os'] == 'Gentoo':
         return __virtualname__
-    return False
+    return (False, 'The gentoo_service execution module cannot be loaded: '
+            'only available on Gentoo systems.')
 
 
 def get_enabled():

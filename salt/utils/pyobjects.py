@@ -12,7 +12,7 @@ import logging
 from salt.utils.odict import OrderedDict
 import salt.ext.six as six
 
-REQUISITES = ('listen', 'require', 'watch', 'use', 'listen_in', 'require_in', 'watch_in', 'use_in')
+REQUISITES = ('listen', 'onchanges', 'onfail', 'require', 'watch', 'use', 'listen_in', 'onchanges_in', 'onfail_in', 'require_in', 'watch_in', 'use_in')
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class Registry(object):
         if id_ in attr:
             if state.full_func in attr[id_]:
                 raise DuplicateState(
-                    "A state with id '{0!r}', type '{1!r}' exists".format(
+                    "A state with id '\'{0}\'', type '\'{1}\'' exists".format(
                         id_,
                         state.full_func
                     )
@@ -170,8 +170,8 @@ class StateFactory(object):
 
     def __getattr__(self, func):
         if len(self.valid_funcs) > 0 and func not in self.valid_funcs:
-            raise InvalidFunction('The function {0!r} does not exist in the '
-                                  'StateFactory for {1!r}'.format(
+            raise InvalidFunction('The function \'{0}\' does not exist in the '
+                                  'StateFactory for \'{1}\''.format(
                                       func,
                                       self.module
                                   ))
@@ -206,6 +206,16 @@ class State(object):
         self.id_ = id_
         self.module = module
         self.func = func
+
+        # our requisites should all be lists, but when you only have a
+        # single item it's more convenient to provide it without
+        # wrapping it in a list. transform them into a list
+        for attr in REQUISITES:
+            if attr in kwargs:
+                try:
+                    iter(kwargs[attr])
+                except TypeError:
+                    kwargs[attr] = [kwargs[attr]]
         self.kwargs = kwargs
 
         if isinstance(self.id_, StateExtend):
@@ -223,12 +233,6 @@ class State(object):
         # handle our requisites
         for attr in REQUISITES:
             if attr in kwargs:
-                # our requisites should all be lists, but when you only have a
-                # single item it's more convenient to provide it without
-                # wrapping it in a list. transform them into a list
-                if not isinstance(kwargs[attr], list):
-                    kwargs[attr] = [kwargs[attr]]
-
                 # rebuild the requisite list transforming any of the actual
                 # StateRequisite objects into their representative dict
                 kwargs[attr] = [

@@ -6,13 +6,29 @@ from __future__ import absolute_import
 
 # Import python libs
 import copy
+
+# Import Salt libs
 import salt.defaults.exitcodes
+
+
+def _nested_output(obj):
+    '''
+    Serialize obj and format for output
+    '''
+    # Explicit late import to avoid circular import
+    from salt.output import nested
+    nested.__opts__ = {}
+    ret = nested.output(obj).rstrip()
+    return ret
 
 
 class SaltException(Exception):
     '''
     Base exception class; all Salt-specific exceptions should subclass this
     '''
+    def __init__(self, message=''):
+        super(SaltException, self).__init__(message)
+        self.strerror = message
 
     def pack(self):
         '''
@@ -31,6 +47,12 @@ class SaltClientError(SaltException):
 class SaltMasterError(SaltException):
     '''
     Problem reading the master root key
+    '''
+
+
+class SaltNoMinionsFound(SaltException):
+    '''
+    An attempt to retrieve a list of minions failed
     '''
 
 
@@ -63,6 +85,38 @@ class CommandExecutionError(SaltException):
     Used when a module runs a command which returns an error and wants
     to show the user the output gracefully instead of dying
     '''
+    def __init__(self, message='', info=None):
+        self.error = exc_str_prefix = message
+        self.info = info
+        if self.info:
+            if not exc_str_prefix.endswith('.'):
+                exc_str_prefix += '.'
+            exc_str_prefix += ' Additional info follows:\n\n'
+            # NOTE: exc_str will be passed to the parent class' constructor and
+            # become self.strerror.
+            exc_str = exc_str_prefix + _nested_output(self.info)
+
+            # For states, if self.info is a dict also provide an attribute
+            # containing a nested output of the info dict without the changes
+            # (since they will be in the 'changes' key of the state return and
+            # this information would be redundant).
+            if isinstance(self.info, dict):
+                info_without_changes = copy.deepcopy(self.info)
+                info_without_changes.pop('changes', None)
+                if info_without_changes:
+                    self.strerror_without_changes = \
+                        exc_str_prefix + _nested_output(info_without_changes)
+                else:
+                    # 'changes' was the only key in the info dictionary. We no
+                    # longer have any additional info to display. Use the
+                    # original error message.
+                    self.strerror_without_changes = self.error
+            else:
+                self.strerror_without_changes = exc_str
+        else:
+            self.strerror_without_changes = exc_str = self.error
+
+        super(CommandExecutionError, self).__init__(exc_str)
 
 
 class LoaderError(SaltException):
@@ -71,9 +125,21 @@ class LoaderError(SaltException):
     '''
 
 
+class PublishError(SaltException):
+    '''
+    Problems encountered when trying to publish a command
+    '''
+
+
 class MinionError(SaltException):
     '''
     Minion problems reading uris such as salt:// or http://
+    '''
+
+
+class FileserverConfigError(SaltException):
+    '''
+    Used when invalid fileserver settings are detected
     '''
 
 
@@ -98,13 +164,13 @@ class SaltRenderError(SaltException):
     of the error.
     '''
     def __init__(self,
-                 error,
+                 message,
                  line_num=None,
                  buf='',
                  marker='    <======================',
                  trace=None):
-        self.error = error
-        exc_str = copy.deepcopy(error)
+        self.error = message
+        exc_str = copy.deepcopy(message)
         self.line_num = line_num
         self.buffer = buf
         self.context = ''
@@ -136,6 +202,12 @@ class SaltClientTimeout(SaltException):
         self.jid = jid
 
 
+class SaltCacheError(SaltException):
+    '''
+    Thrown when a problem was encountered trying to read or write from the salt cache
+    '''
+
+
 class SaltReqTimeoutError(SaltException):
     '''
     Thrown when a salt master request call fails to return within the timeout
@@ -164,6 +236,13 @@ class TokenAuthenticationError(SaltException):
 class AuthorizationError(SaltException):
     '''
     Thrown when runner or wheel execution fails due to permissions
+    '''
+
+
+class SaltDaemonNotRunning(SaltException):
+    '''
+    Throw when a running master/minion/syndic is not running but is needed to
+    perform the requested operation (e.g., eauth).
     '''
 
 
@@ -233,4 +312,11 @@ class SaltCloudExecutionFailure(SaltCloudException):
 class SaltCloudPasswordError(SaltCloudException):
     '''
     Raise when virtual terminal password input failed
+    '''
+
+
+class NotImplemented(SaltException):
+    '''
+    Used when a module runs a command which returns an error and wants
+    to show the user the output gracefully instead of dying
     '''

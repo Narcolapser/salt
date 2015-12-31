@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 '''
+Interface to Red Hat tuned-adm module
+
 :maintainer:    Syed Ali <alicsyed@gmail.com>
 :maturity:      new
 :depends:       cmd.run
 :platform:      Linux
 '''
 
+# Import Python libs
+from __future__ import absolute_import
+
+# Import Salt libs
 import salt.exceptions
 
 

@@ -25,7 +25,7 @@ def __virtual__():
     '''
     if __grains__['os'] == 'MacOS':
         return __virtualname__
-    return False
+    return (False, 'launchctl execution module cannot be loaded: only available on MacOS.')
 
 
 def _launchd_paths():
@@ -66,7 +66,10 @@ def _available_services():
                     # the system provided plutil program to do the conversion
                     cmd = '/usr/bin/plutil -convert xml1 -o - -- "{0}"'.format(true_path)
                     plist_xml = __salt__['cmd.run_all'](cmd, python_shell=False)['stdout']
-                    plist = plistlib.readPlistFromString(plist_xml)
+                    if six.PY2:
+                        plist = plistlib.readPlistFromString(plist_xml)
+                    else:
+                        plist = plistlib.readPlistFromBytes(salt.utils.to_bytes(plist_xml))
 
                 available_services[plist.Label.lower()] = {
                     'filename': filename,

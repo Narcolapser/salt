@@ -37,7 +37,6 @@ from salt.ext.six import string_types
 import logging
 import salt.ext.six as six
 log = logging.getLogger(__name__)
-from salt._compat import string_types
 
 
 def mounted(name,
@@ -51,7 +50,12 @@ def mounted(name,
             persist=True,
             mount=True,
             user=None,
-            match_on='auto'):
+            match_on='auto',
+            extra_mount_invisible_options=None,
+            extra_mount_invisible_keys=None,
+            extra_mount_ignore_fs_keys=None,
+            extra_mount_translate_options=None,
+            hidden_opts=None):
     '''
     Verify that a device is mounted
 
@@ -97,6 +101,40 @@ def mounted(name,
         Default is ``auto``, a special value indicating to guess based on fstype.
         In general, ``auto`` matches on name for recognized special devices and
         device otherwise.
+
+    extra_mount_invisible_options
+        A list of extra options that are not visible through the /proc/self/mountinfo
+        interface. If a option is not visible through this interface it will always
+        remount the device. This Option extends the builtin mount_invisible_options list.
+
+    extra_mount_invisible_keys
+        A list of extra key options that are not visible through the /proc/self/mountinfo
+        interface. If a key option is not visible through this interface it will always
+        remount the device. This Option extends the builtin mount_invisible_keys list.
+        A good example for a key Option is the password Option:
+            password=badsecret
+
+    extra_ignore_fs_keys
+        A dict of filesystem options which should not force a remount. This will update
+        the internal dictionary. The dict should look like this:
+            {
+                'ramfs': ['size']
+            }
+
+    extra_mount_translate_options
+        A dict of mount options that gets translated when mounted. To prevent a remount
+        add additional Options to the default dictionary. This will update the internal
+        dictionary. The dictionary should look like this:
+            {
+                'tcp': 'proto=tcp',
+                'udp': 'proto=udp'
+            }
+
+    hidden_opts
+        A list of mount options that will be ignored when considering a remount
+        as part of the state application
+
+        .. versionadded:: 2015.8.2
     '''
     ret = {'name': name,
            'changes': {},
@@ -111,6 +149,9 @@ def mounted(name,
     # string
     if isinstance(opts, string_types):
         opts = opts.split(',')
+
+    if isinstance(hidden_opts, string_types):
+        hidden_opts = hidden_opts.split(',')
 
     # remove possible trailing slash
     if not name == '/':
@@ -134,13 +175,24 @@ def mounted(name,
                 real_device = _real_device
             else:
                 # Remote file systems act differently.
-                opts = list(set(opts + active[_device]['opts'] + active[_device]['superopts']))
-                active[real_name]['opts'].append('bind')
+                if _device in active:
+                    opts = list(set(opts + active[_device]['opts'] + active[_device]['superopts']))
+                    active[real_name]['opts'].append('bind')
                 real_device = active[real_name]['device']
         else:
             real_device = os.path.realpath(device)
     elif device.upper().startswith('UUID='):
         real_device = device.split('=')[1].strip('"').lower()
+    elif device.upper().startswith('LABEL='):
+        _label = device.split('=')[1]
+        cmd = 'blkid -L {0}'.format(_label)
+        res = __salt__['cmd.run_all']('{0}'.format(cmd))
+        if res['retcode'] > 0:
+            ret['comment'] = 'Unable to find device with label {0}.'.format(_label)
+            ret['result'] = False
+            return ret
+        else:
+            real_device = res['stdout']
     else:
         real_device = device
 
@@ -158,13 +210,11 @@ def mounted(name,
         if os.path.exists(mapper_device):
             real_device = mapper_device
 
-    # When included in a Salt state file, FUSE
-    # devices are prefaced by the filesystem type
-    # and a hash, e.g. sshfs#.  In the mount list
-    # only the hostname is included.  So if we detect
-    # that the device is a FUSE device then we
-    # remove the prefaced string so that the device in
-    # state matches the device in the mount list.
+    # When included in a Salt state file, FUSE devices are prefaced by the
+    # filesystem type and a hash, e.g. sshfs.  In the mount list only the
+    # hostname is included.  So if we detect that the device is a FUSE device
+    # then we remove the prefaced string so that the device in state matches
+    # the device in the mount list.
     fuse_match = re.match(r'^\w+\#(?P<device_name>.+)', device)
     if fuse_match:
         if 'device_name' in fuse_match.groupdict():
@@ -172,6 +222,8 @@ def mounted(name,
 
     device_list = []
     if real_name in active:
+        if 'superopts' not in active[real_name]:
+            active[real_name]['superopts'] = []
         if mount:
             device_list.append(active[real_name]['device'])
             device_list.append(os.path.realpath(device_list[0]))
@@ -192,23 +244,65 @@ def mounted(name,
                     'comment',
                     'defaults',
                     'delay_connect',
+                    'direct-io-mode',
                     'intr',
+                    'loop',
+                    'nointr',
                     'nobootwait',
                     'nofail',
                     'password',
                     'reconnect',
                     'retry',
                     'soft',
+                    'auto',
+                    'users',
+                    'bind',
+                    'nonempty',
+                    'transform_symlinks',
+                    'port',
+                    'backup-volfile-servers',
                 ]
+
+                if extra_mount_invisible_options:
+                    mount_invisible_options.extend(extra_mount_invisible_options)
+
+                if hidden_opts:
+                    mount_invisible_options = list(set(mount_invisible_options) | set(hidden_opts))
+
                 # options which are provided as key=value (e.g. password=Zohp5ohb)
                 mount_invisible_keys = [
                     'actimeo',
                     'comment',
+                    'direct-io-mode',
                     'password',
                     'retry',
+                    'port',
                 ]
 
+                if extra_mount_invisible_keys:
+                    mount_invisible_keys.extend(extra_mount_invisible_keys)
+
+                # Some filesystems have options which should not force a remount.
+                mount_ignore_fs_keys = {
+                    'ramfs': ['size']
+                }
+
+                if extra_mount_ignore_fs_keys:
+                    mount_ignore_fs_keys.update(extra_mount_ignore_fs_keys)
+
+                # Some options are translated once mounted
+                mount_translate_options = {
+                    'tcp': 'proto=tcp',
+                    'udp': 'proto=udp',
+                }
+
+                if extra_mount_translate_options:
+                    mount_translate_options.update(extra_mount_translate_options)
+
                 for opt in opts:
+                    if opt in mount_translate_options:
+                        opt = mount_translate_options[opt]
+
                     keyval_option = opt.split('=')[0]
                     if keyval_option in mount_invisible_keys:
                         opt = keyval_option
@@ -221,17 +315,36 @@ def mounted(name,
                         if size_match.group('size_unit') == 'g':
                             converted_size = int(size_match.group('size_value')) * 1024 * 1024
                         opt = "size={0}k".format(converted_size)
+                    # make cifs option user synonym for option username which is reported by /proc/mounts
+                    if fstype in ['cifs'] and opt.split('=')[0] == 'user':
+                        opt = "username={0}".format(opt.split('=')[1])
 
-                    if opt not in active[real_name]['opts'] and opt not in mount_invisible_options and \
-                        ('superopts' in active[real_name] and opt not in active[real_name]['superopts']):
+                    # convert uid/gid to numeric value from user/group name
+                    name_id_opts = {'uid': 'user.info',
+                                    'gid': 'group.info'}
+                    if opt.split('=')[0] in name_id_opts:
+                        _givenid = opt.split('=')[1]
+                        _param = opt.split('=')[0]
+                        _id = _givenid
+                        if not re.match('[0-9]+$', _givenid):
+                            _info = __salt__[name_id_opts[_param]](_givenid)
+                            if _info and _param in _info:
+                                _id = _info[_param]
+                        opt = _param + '=' + str(_id)
+
+                    if opt not in active[real_name]['opts'] \
+                    and opt not in active[real_name].get('superopts', []) \
+                    and opt not in mount_invisible_options \
+                    and opt not in mount_ignore_fs_keys.get(fstype, []) \
+                    and opt not in mount_invisible_keys:
                         if __opts__['test']:
                             ret['result'] = None
                             ret['comment'] = "Remount would be forced because options ({0}) changed".format(opt)
                             return ret
                         else:
-                            # nfs requires umounting and mounting if options change
+                            # Some file systems require umounting and mounting if options change
                             # add others to list that require similiar functionality
-                            if fstype in ['nfs']:
+                            if fstype in ['nfs', 'cvfs'] or fstype.startswith('fuse'):
                                 ret['changes']['umount'] = "Forced unmount and mount because " \
                                                             + "options ({0}) changed".format(opt)
                                 unmount_result = __salt__['mount.umount'](real_name)
@@ -478,7 +591,7 @@ def swap(name, persist=True, config='/etc/fstab'):
 
 
 def unmounted(name,
-              device,
+              device=None,
               config='/etc/fstab',
               persist=False,
               user=None):
@@ -490,10 +603,11 @@ def unmounted(name,
     name
         The path to the location where the device is to be unmounted from
 
-    .. versionadded:: Lithium
-
     device
-        The device to be unmounted.
+        The device to be unmounted.  This is optional because the device could
+        be mounted in multiple places.
+
+        .. versionadded:: 2015.5.0
 
     config
         Set an alternative location for the fstab, Default is ``/etc/fstab``
@@ -595,5 +709,5 @@ def mod_watch(name, user=None, **kwargs):
             ret['result'] = False
             ret['comment'] = '{0} failed to remount: {1}'.format(name, out)
     else:
-        ret['comment'] = 'Watch not supported in {1} at this time'.format(kwargs['sfun'])
+        ret['comment'] = 'Watch not supported in {0} at this time'.format(kwargs['sfun'])
     return ret

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 
 # Import python libs
+from __future__ import absolute_import
 import os
+import copy
 import tempfile
 import json
 import datetime
@@ -17,6 +19,7 @@ ensure_in_syspath('../../')
 import salt.loader
 import salt.utils
 from salt.exceptions import SaltRenderError
+from salt.ext.six.moves import builtins
 from salt.utils import get_context
 from salt.utils.jinja import (
     SaltCacheLoader,
@@ -25,6 +28,7 @@ from salt.utils.jinja import (
 )
 from salt.utils.templates import JINJA, render_jinja_tmpl
 from salt.utils.odict import OrderedDict
+from integration import TMP_CONF_DIR
 
 # Import 3rd party libs
 import yaml
@@ -57,12 +61,26 @@ class MockFileClient(object):
 
 
 class TestSaltCacheLoader(TestCase):
+    def __init__(self, *args, **kws):
+        TestCase.__init__(self, *args, **kws)
+        self.opts = {
+            'cachedir': TEMPLATES_DIR,
+            'file_roots': {
+                'test': [os.path.join(TEMPLATES_DIR, 'files', 'test')]
+            },
+            'pillar_roots': {
+                'test': [os.path.join(TEMPLATES_DIR, 'files', 'test')]
+            }
+        }
+
     def test_searchpath(self):
         '''
         The searchpath is based on the cachedir option and the saltenv parameter
         '''
         tmp = tempfile.gettempdir()
-        loader = SaltCacheLoader({'cachedir': tmp}, saltenv='test')
+        opts = copy.deepcopy(self.opts)
+        opts.update({'cachedir': tmp})
+        loader = SaltCacheLoader(opts, saltenv='test')
         assert loader.searchpath == [os.path.join(tmp, 'files', 'test')]
 
     def test_mockclient(self):
@@ -70,7 +88,7 @@ class TestSaltCacheLoader(TestCase):
         A MockFileClient is used that records all file requests normally sent
         to the master.
         '''
-        loader = SaltCacheLoader({'cachedir': TEMPLATES_DIR}, 'test')
+        loader = SaltCacheLoader(self.opts, 'test')
         fc = MockFileClient(loader)
         res = loader.get_source(None, 'hello_simple')
         assert len(res) == 3
@@ -86,7 +104,7 @@ class TestSaltCacheLoader(TestCase):
         '''
         Setup a simple jinja test environment
         '''
-        loader = SaltCacheLoader({'cachedir': TEMPLATES_DIR}, 'test')
+        loader = SaltCacheLoader(self.opts, 'test')
         fc = MockFileClient(loader)
         jinja = Environment(loader=loader)
         return fc, jinja
@@ -134,6 +152,9 @@ class TestGetTemplate(TestCase):
             'file_roots': {
                 'test': [os.path.join(TEMPLATES_DIR, 'files', 'test')]
             },
+            'pillar_roots': {
+                'test': [os.path.join(TEMPLATES_DIR, 'files', 'test')]
+            },
             'fileserver_backend': ['roots'],
             'hash_type': 'md5',
             'extension_modules': os.path.join(
@@ -178,7 +199,9 @@ class TestGetTemplate(TestCase):
         filename = os.path.join(TEMPLATES_DIR, 'files', 'test', 'hello_import')
         out = render_jinja_tmpl(
                 salt.utils.fopen(filename).read(),
-                dict(opts={'cachedir': TEMPLATES_DIR, 'file_client': 'remote'},
+                dict(opts={'cachedir': TEMPLATES_DIR, 'file_client': 'remote',
+                           'file_roots': self.local_opts['file_roots'],
+                           'pillar_roots': self.local_opts['pillar_roots']},
                      a='Hi', b='Salt', saltenv='test'))
         self.assertEqual(out, 'Hey world !Hi Salt !\n')
         self.assertEqual(fc.requests[0]['path'], 'salt://macro')
@@ -267,7 +290,9 @@ class TestGetTemplate(TestCase):
         filename = os.path.join(TEMPLATES_DIR, 'files', 'test', 'hello_import')
         out = render_jinja_tmpl(
                 salt.utils.fopen(filename).read(),
-                dict(opts={'cachedir': TEMPLATES_DIR, 'file_client': 'remote'},
+                dict(opts={'cachedir': TEMPLATES_DIR, 'file_client': 'remote',
+                           'file_roots': self.local_opts['file_roots'],
+                           'pillar_roots': self.local_opts['pillar_roots']},
                      a='Hi', b='Sàlt', saltenv='test'))
         self.assertEqual(out, u'Hey world !Hi Sàlt !\n')
         self.assertEqual(fc.requests[0]['path'], 'salt://macro')
@@ -278,7 +303,9 @@ class TestGetTemplate(TestCase):
         filename = os.path.join(TEMPLATES_DIR, 'files', 'test', 'non_ascii')
         out = render_jinja_tmpl(
                 salt.utils.fopen(filename).read(),
-                dict(opts={'cachedir': TEMPLATES_DIR, 'file_client': 'remote'},
+                dict(opts={'cachedir': TEMPLATES_DIR, 'file_client': 'remote',
+                           'file_roots': self.local_opts['file_roots'],
+                           'pillar_roots': self.local_opts['pillar_roots']},
                      a='Hi', b='Sàlt', saltenv='test'))
         self.assertEqual(u'Assunção\n', out)
         self.assertEqual(fc.requests[0]['path'], 'salt://macro')
@@ -359,6 +386,8 @@ class TestGetTemplate(TestCase):
         )
 
     def test_render_with_unicode_syntax_error(self):
+        encoding = builtins.__salt_system_encoding__
+        builtins.__salt_system_encoding__ = 'utf-8'
         template = u'hello\n\n{{ bad\n\nfoo\ud55c'
         expected = r'.*---\nhello\n\n{{ bad\n\nfoo\xed\x95\x9c    <======================\n---'
         self.assertRaisesRegexp(
@@ -368,8 +397,11 @@ class TestGetTemplate(TestCase):
             template,
             dict(opts=self.local_opts, saltenv='test')
         )
+        builtins.__salt_system_encoding__ = encoding
 
     def test_render_with_utf8_syntax_error(self):
+        encoding = builtins.__salt_system_encoding__
+        builtins.__salt_system_encoding__ = 'utf-8'
         template = 'hello\n\n{{ bad\n\nfoo\xed\x95\x9c'
         expected = r'.*---\nhello\n\n{{ bad\n\nfoo\xed\x95\x9c    <======================\n---'
         self.assertRaisesRegexp(
@@ -379,6 +411,7 @@ class TestGetTemplate(TestCase):
             template,
             dict(opts=self.local_opts, saltenv='test')
         )
+        builtins.__salt_system_encoding__ = encoding
 
     def test_render_with_undefined_variable(self):
         template = "hello\n\n{{ foo }}\n\nfoo"
@@ -649,7 +682,8 @@ class TestDotNotationLookup(ModuleCase):
             'mocktest.ping': lambda: True,
             'mockgrains.get': lambda x: 'jerry',
         }
-        render = salt.loader.render(self.minion_opts, functions)
+        minion_opts = salt.config.minion_config(os.path.join(TMP_CONF_DIR, 'minion'))
+        render = salt.loader.render(minion_opts, functions)
         self.jinja = render.get('jinja')
 
     def render(self, tmpl_str, context=None):

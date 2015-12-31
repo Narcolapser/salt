@@ -9,7 +9,9 @@ cope with scale.
 :platform:      all
 
 To enable this returner the minion will need the psycopg2 installed and
-the following values configured in the master config::
+the following values configured in the master config:
+
+.. code-block:: yaml
 
     master_job_cache: postgres_local_cache
     master_job_cache.postgres.host: 'salt'
@@ -19,7 +21,9 @@ the following values configured in the master config::
     master_job_cache.postgres.port: 5432
 
 Running the following command as the postgres user should create the database
-correctly::
+correctly:
+
+.. code-block:: sql
 
     psql << EOF
     CREATE ROLE salt WITH PASSWORD 'salt';
@@ -27,6 +31,8 @@ correctly::
     EOF
 
 and then:
+
+.. code-block:: sql
 
     psql -h localhost -U salt << EOF
     --
@@ -50,6 +56,8 @@ and then:
     --
     -- Table structure for table 'salt_returns'
     --
+    -- note that 'success' must not have NOT NULL constraint, since
+    -- some functions don't provide it.
 
     DROP TABLE IF EXISTS salt_returns;
     CREATE TABLE salt_returns (
@@ -68,8 +76,9 @@ and then:
 
 Required python modules: psycopg2
 '''
-from __future__ import absolute_import
+
 # Import python libs
+from __future__ import absolute_import
 import json
 import logging
 import re
@@ -78,6 +87,8 @@ import sys
 # Import salt libs
 import salt.utils
 import salt.utils.jid
+import salt.ext.six as six
+
 # Import third party libs
 try:
     import psycopg2
@@ -100,7 +111,7 @@ OUT_P = 'out.p'
 
 def __virtual__():
     if not HAS_POSTGRES:
-        log.info("Could not import psycopg2, postges_local_cache disabled.")
+        log.info("Could not import psycopg2, postgres_local_cache disabled.")
         return False
     return 'postgres_local_cache'
 
@@ -205,9 +216,9 @@ def returner(load):
         sql, (
             load['fun'],
             load['jid'],
-            json.dumps(load['return']),
+            json.dumps(six.text_type(str(load['return']), 'utf-8', 'replace')),
             load['id'],
-            load['success']
+            load.get('success'),
         )
     )
     _close_conn(conn)

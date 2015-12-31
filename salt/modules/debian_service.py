@@ -15,7 +15,7 @@ from salt.ext.six.moves import shlex_quote as _cmd_quote
 # pylint: enable=import-error
 
 # Import salt libs
-from .systemd import _sd_booted
+import salt.utils.systemd
 
 __func_alias__ = {
     'reload_': 'reload'
@@ -34,9 +34,11 @@ def __virtual__():
     '''
     Only work on Debian and when systemd isn't running
     '''
-    if __grains__['os'] in ('Debian', 'Raspbian') and not _sd_booted():
+    if __grains__['os'] in ('Debian', 'Raspbian', 'Devuan') and not salt.utils.systemd.booted(__context__):
         return __virtualname__
-    return False
+    else:
+        return (False, 'The debian_service module could not be loaded: '
+                'unsupported OS family and/or systemd running.')
 
 
 def _service_cmd(*args):

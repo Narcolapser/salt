@@ -18,7 +18,7 @@ def __virtual__():
     '''
     if salt.utils.which('getfacl'):
         return __virtualname__
-    return False
+    return (False, 'The linux_acl execution module cannot be loaded: the getfacl binary is not in the path.')
 
 
 def version():
@@ -109,11 +109,12 @@ def getfacl(*args, **kwargs):
                 if entity in vals:
                     del vals[entity]
                     if acl_type == 'acl':
-                        ret[dentry][entity] = vals
+                        ret[dentry][entity] = [{"": vals}]
                     elif acl_type == 'default':
                         if 'defaults' not in ret[dentry]:
                             ret[dentry]['defaults'] = {}
-                        ret[dentry]['defaults'][entity] = vals
+                        ret[dentry]['defaults'][entity] = [{"": vals}]
+
     return ret
 
 
@@ -217,9 +218,11 @@ def modfacl(acl_type, acl_name='', perms='', *args, **kwargs):
 
     _raise_on_no_files(*args)
 
-    cmd = 'setfacl -m'
+    cmd = 'setfacl'
     if recursive:
-        cmd += ' -R'
+        cmd += ' -R'  # -R must come first as -m needs the acl_* arguments that come later
+
+    cmd += ' -m'
 
     cmd = '{0} {1}:{2}:{3}'.format(cmd, _acl_prefix(acl_type), acl_name, perms)
 

@@ -41,12 +41,24 @@ except ImportError:
     pass
 
 # Import salt libs
+import salt.utils
 from salt.exceptions import SaltInvocationError
 
 log = logging.getLogger(__name__)
 
 # Define the module's virtual name
 __virtualname__ = 'augeas'
+
+METHOD_MAP = {
+    'set':    'set',
+    'setm':    'setm',
+    'mv':     'move',
+    'move':   'move',
+    'ins':    'insert',
+    'insert': 'insert',
+    'rm':     'remove',
+    'remove': 'remove',
+}
 
 
 def __virtual__():
@@ -55,7 +67,7 @@ def __virtual__():
     '''
     if HAS_AUGEAS:
         return __virtualname__
-    return False
+    return (False, 'Cannot load augeas_cfg module: augeas python module not installed')
 
 
 def _recurmatch(path, aug):
@@ -102,56 +114,81 @@ def execute(context=None, lens=None, commands=()):
     '''
     ret = {'retval': False}
 
-    method_map = {
-        'set':    'set',
-        'mv':     'move',
-        'move':   'move',
-        'ins':    'insert',
-        'insert': 'insert',
-        'rm':     'remove',
-        'remove': 'remove',
+    arg_map = {
+        'set':    (1, 2),
+        'setm':   (2, 3),
+        'move':   (2,),
+        'insert': (3,),
+        'remove': (1,),
     }
 
-    flags = _Augeas.NO_MODL_AUTOLOAD if lens else _Augeas.NONE
+    def make_path(path):
+        '''
+        Return correct path
+        '''
+        if not context:
+            return path
+
+        if path.lstrip('/'):
+            if path.startswith(context):
+                return path
+
+            path = path.lstrip('/')
+            return os.path.join(context, path)
+        else:
+            return context
+
+    flags = _Augeas.NO_MODL_AUTOLOAD if lens and context else _Augeas.NONE
     aug = _Augeas(flags=flags)
 
-    if lens:
+    if lens and context:
         aug.add_transform(lens, re.sub('^/files', '', context))
         aug.load()
 
     for command in commands:
-        # first part up to space is always the command name (i.e.: set, move)
-        cmd, arg = command.split(' ', 1)
-        if cmd not in method_map:
-            ret['error'] = 'Command {0} is not supported (yet)'.format(cmd)
-            return ret
-
-        method = method_map[cmd]
-
         try:
+            # first part up to space is always the command name (i.e.: set, move)
+            cmd, arg = command.split(' ', 1)
+
+            if cmd not in METHOD_MAP:
+                ret['error'] = 'Command {0} is not supported (yet)'.format(cmd)
+                return ret
+
+            method = METHOD_MAP[cmd]
+            nargs = arg_map[method]
+
+            parts = salt.utils.shlex_split(arg)
+
+            if len(parts) not in nargs:
+                err = '{0} takes {1} args: {2}'.format(method, nargs, parts)
+                raise ValueError(err)
             if method == 'set':
-                path, value, remainder = re.split('([^\'" ]+|"[^"]+"|\'[^\']+\')$', arg, 1)
-                if context:
-                    path = os.path.join(context.rstrip('/'), path.lstrip('/'))
-                value = value.strip('"').strip("'")
+                path = make_path(parts[0])
+                value = parts[1] if len(parts) == 2 else None
                 args = {'path': path, 'value': value}
+            elif method == 'setm':
+                base = make_path(parts[0])
+                sub = parts[1]
+                value = parts[2] if len(parts) == 3 else None
+                args = {'base': base, 'sub': sub, 'value': value}
             elif method == 'move':
-                path, dst = arg.split(' ', 1)
-                if context:
-                    path = os.path.join(context.rstrip('/'), path.lstrip('/'))
+                path = make_path(parts[0])
+                dst = parts[1]
                 args = {'src': path, 'dst': dst}
             elif method == 'insert':
-                path, where, label = re.split(' (before|after) ', arg)
-                if context:
-                    path = os.path.join(context.rstrip('/'), path.lstrip('/'))
+                label, where, path = parts
+                if where not in ('before', 'after'):
+                    raise ValueError('Expected "before" or "after", not {0}'.format(where))
+                path = make_path(path)
                 args = {'path': path, 'label': label, 'before': where == 'before'}
             elif method == 'remove':
-                path = arg
-                if context:
-                    path = os.path.join(context.rstrip('/'), path.lstrip('/'))
+                path = make_path(parts[0])
                 args = {'path': path}
         except ValueError as err:
             log.error(str(err))
+            # if command.split fails arg will not be set
+            if 'arg' not in locals():
+                arg = command
             ret['error'] = 'Invalid formatted command, ' \
                            'see debug log for details: {0}'.format(arg)
             return ret

@@ -6,10 +6,10 @@ welcome!
 
 To assist in Salt development, you can help in a number of ways.
 
-Setting a Github pull request
+Setting a GitHub pull request
 -----------------------------
 
-This is the preferred method for contributions, simply create a Github
+This is the preferred method for contributions, simply create a GitHub
 fork, commit your changes to the fork, and then open up a pull request.
 
 Posting patches to the mailing list
@@ -139,6 +139,10 @@ Debian, Ubuntu, and the RedHat systems mentioned above, you should use
 M2Crypto installed using apt::
 
     virtualenv --system-site-packages /path/to/your/virtualenv
+
+On Gentoo systems you should use ``--system-site-packages`` when creating
+the virtualenv to enable pkg and portage_config functionality as the
+portage package is not available via pip
 
 .. note:: Using your system Python modules in the virtualenv
 

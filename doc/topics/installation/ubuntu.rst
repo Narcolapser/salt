@@ -2,16 +2,84 @@
 Ubuntu Installation
 ===================
 
-Add repository
-==============
+.. _installation-ubuntu-repo:
 
-The latest packages for Ubuntu are published in the saltstack PPA. If you have
+Installation from the SaltStack Repository
+==========================================
+
+2015.5 and later packages for Ubuntu 14 (Trusty) and Ubuntu 12 (Precise) are
+available in the SaltStack repository.
+
+.. important::
+  The repository folder structure changed in the 2015.8.3 release, though the
+  previous repository structure that was documented in 2015.8.1 can continue to
+  be used.
+
+To install using the SaltStack repository:
+
+#. Run the following command to import the SaltStack repository key:
+
+   Ubuntu 14:
+
+   .. code-block:: bash
+
+       wget -O - https://repo.saltstack.com/apt/ubuntu/14.04/amd64/latest/SALTSTACK-GPG-KEY.pub | sudo apt-key add -
+
+   Ubuntu 12:
+
+   .. code-block:: bash
+
+       wget -O - https://repo.saltstack.com/apt/ubuntu/12.04/amd64/latest/SALTSTACK-GPG-KEY.pub | sudo apt-key add -
+
+#. Add the following line to ``/etc/apt/sources.list``:
+
+   Ubuntu 14:
+
+   .. code-block:: bash
+
+       deb http://repo.saltstack.com/apt/ubuntu/14.04/amd64/latest trusty main
+
+   Ubuntu 12:
+
+   .. code-block:: bash
+
+       deb http://repo.saltstack.com/apt/ubuntu/12.04/amd64/latest precise main
+
+#. Run ``sudo apt-get update``.
+
+#. Install the salt-minion, salt-master, or other Salt components:
+
+   - ``apt-get install salt-master``
+   - ``apt-get install salt-minion``
+   - ``apt-get install salt-ssh``
+   - ``apt-get install salt-syndic``
+   - ``apt-get install salt-cloud``
+
+Post-installation tasks
+-----------------------
+
+Now, go to the :doc:`Configuring Salt </ref/configuration/index>` page.
+
+Installation from the Community Repository
+==========================================
+
+Packages for Ubuntu are also published in the saltstack PPA. If you have
 the ``add-apt-repository`` utility, you can add the repository and import the
 key in one step:
 
 .. code-block:: bash
 
     sudo add-apt-repository ppa:saltstack/salt
+
+In addition to the main repository, there are secondary repositories for each
+individual major release. These repositories receive security and point
+releases but will not upgrade to any subsequent major release.  There are
+currently several available repos: salt16, salt17, salt2014-1, salt2014-7,
+salt2015-5. For example to follow 2015.5.x releases:
+
+.. code-block:: bash
+
+    sudo add-apt-repository ppa:saltstack/salt2015-5
 
 .. admonition:: add-apt-repository: command not found?
 
@@ -55,80 +123,15 @@ Install the Salt master, minion, or syndic from the repository with the apt-get
 command. These examples each install one daemon, but more than one package name
 may be given at a time:
 
-.. code-block:: bash
-
-    sudo apt-get install salt-master
-
-.. code-block:: bash
-
-    sudo apt-get install salt-minion
-
-.. code-block:: bash
-
-    sudo apt-get install salt-syndic
-
-Some core components are packaged separately in the Ubuntu repositories.  These should be installed as well: salt-cloud, salt-ssh, salt-api
-
-.. code-block:: bash
-
-    sudo apt-get install salt-cloud
-    
-.. code-block:: bash
-
-    sudo apt-get install salt-ssh
-    
-.. code-block:: bash
-
-    sudo apt-get install salt-api
+- ``apt-get install salt-master``
+- ``apt-get install salt-minion``
+- ``apt-get install salt-ssh``
+- ``apt-get install salt-syndic``
 
 .. _ubuntu-config:
-
-
-ZeroMQ 4
-========
-
-We recommend using ZeroMQ 4 where available. ZeroMQ 4 is already available for
-Ubuntu 14.04 and Ubuntu 14.10 and nothing additional needs to be done. However,
-the **chris-lea/zeromq** PPA can be used to provide ZeroMQ 4 on Ubuntu 12.04 LTS.
-Adding this PPA can be done with a :mod:`pkgrepo.managed <salt.states.pkgrepo.managed>`
-state.
-
-.. code-block:: yaml
-
-    zeromq-ppa:
-      pkgrepo.managed:
-        - ppa: chris-lea/zeromq
-
-The following states can be used to upgrade ZeroMQ and pyzmq, and then restart
-the minion:
-
-.. code-block:: yaml
-
-    update_zmq:
-      pkg.latest:
-        - pkgs:
-          - zeromq
-          - python-zmq
-        - order: last
-      cmd.wait:
-        - name: |
-            echo service salt-minion restart | at now + 1 minute
-        - watch:
-          - pkg: update_zmq
-
-.. note::
-
-    This example assumes that atd is installed and running, see here_ for a more
-    detailed explanation.
-
-.. _here: http://docs.saltstack.com/en/latest/faq.html#what-is-the-best-way-to-restart-a-salt-daemon-using-salt
-
-If this repo is added *before* Salt is installed, then installing either
-``salt-master`` or ``salt-minion`` will automatically pull in ZeroMQ 4.0.4, and
-additional states to upgrade ZeroMQ and pyzmq are unnecessary.
-
 
 Post-installation tasks
 =======================
 
 Now go to the :doc:`Configuring Salt</ref/configuration/index>` page.
+

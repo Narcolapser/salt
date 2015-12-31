@@ -23,6 +23,20 @@ def __virtual__():
     return __virtualname__ if __opts__.get('transport', '') == 'raet' else False
 
 
+def _parse_args(arg):
+    '''
+    yamlify `arg` and ensure it's outermost datatype is a list
+    '''
+    yaml_args = salt.utils.args.yamlify_arg(arg)
+
+    if yaml_args is None:
+        return []
+    elif not isinstance(yaml_args, list):
+        return [yaml_args]
+    else:
+        return yaml_args
+
+
 def _publish(
         tgt,
         fun,
@@ -54,9 +68,7 @@ def _publish(
         log.info('Function name is \'publish.publish\'. Returning {}')
         return {}
 
-    arg = [salt.utils.args.yamlify_arg(arg)]
-    if len(arg) == 1 and arg[0] is None:
-        arg = []
+    arg = _parse_args(arg)
 
     load = {'cmd': 'minion_pub',
             'fun': fun,
@@ -72,7 +84,7 @@ def _publish(
     try:
         peer_data = channel.send(load)
     except SaltReqTimeoutError:
-        return '{0!r} publish timed out'.format(fun)
+        return '\'{0}\' publish timed out'.format(fun)
     if not peer_data:
         return {}
     # CLI args are passed as strings, re-cast to keep time.sleep happy
@@ -108,6 +120,7 @@ def publish(tgt, fun, arg=None, expr_form='glob', returner='', timeout=5):
     - grain
     - grain_pcre
     - pillar
+    - pillar_pcre
     - ipcidr
     - range
     - compound
@@ -191,9 +204,7 @@ def runner(fun, arg=None, timeout=5):
 
         salt publish.runner manage.down
     '''
-    arg = [salt.utils.args.yamlify_arg(arg)]
-    if len(arg) == 1 and arg[0] is None:
-        arg = []
+    arg = _parse_args(arg)
 
     load = {'cmd': 'minion_runner',
             'fun': fun,
@@ -205,4 +216,4 @@ def runner(fun, arg=None, timeout=5):
     try:
         return channel.send(load)
     except SaltReqTimeoutError:
-        return '{0!r} runner publish timed out'.format(fun)
+        return '\'{0}\' runner publish timed out'.format(fun)

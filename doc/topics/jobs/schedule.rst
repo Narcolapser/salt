@@ -158,7 +158,7 @@ States
           - 'logger -t salt < /proc/loadavg'
         kwargs:
           stateful: False
-          shell: \bin\sh
+          shell: /bin/sh
 
 Highstates
 ==========
@@ -184,14 +184,15 @@ configuration file:
 .. code-block:: yaml
 
     schedule:
-      overstate:
-        function: state.over
-        seconds: 35
-        minutes: 30
-        hours: 3
+      run_my_orch:
+        function: state.orchestrate
+        hours: 6
+        splay: 600
+        args:
+          - orchestration.my_orch
 
-The above configuration will execute the state.over runner every 3 hours,
-30 minutes and 35 seconds, or every 12,635 seconds.
+The above configuration is analogous to running
+``salt-run state.orch orchestration.my_orch`` every 6 hours.
 
 Scheduler With Returner
 =======================

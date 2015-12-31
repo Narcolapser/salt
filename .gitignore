@@ -17,18 +17,18 @@ MANIFEST
 #   top of salt such as
 # - /some/path$ git clone https://github.com/thatch45/salt.git
 # - /some/path$ virtualenv --python=/usr/bin/python2.6 salt
-bin/
-include/
-lib/
-lib64
-pip/
-share/
-tests/integration/tmp/
-tests/cachedir/
-tests/unit/templates/roots/
-
-# tox - ignore any tox-created virtualenv dirs
-.tox
+/bin/
+/etc/
+/include/
+/lib/
+/lib64/
+/local/
+/pip/
+/share/
+/tests/integration/tmp/
+/tests/cachedir/
+/tests/unit/templates/roots/
+/var/
 
 # setuptools stuff
 *.egg-info
@@ -39,6 +39,7 @@ coverage.xml
 htmlcov/
 
 # IDE files
+/.settings
 /.project
 /.pydevproject
 /.idea
@@ -53,8 +54,8 @@ htmlcov/
 tags
 
 # ignore Vagrant file
-Vagrantfile
-.vagrant
+**/Vagrantfile
+**/.vagrant
 
 # Compiled translation files should not be VCS'ed
 # locale/zh_CN/LC_MESSAGES/topics/virt/nic.mo
@@ -70,3 +71,6 @@ tests/integration/files/conf/grains
 
 # ignore the local root
 /root/**
+
+# Ignore file cache created by jinja tests
+tests/unit/templates/roots

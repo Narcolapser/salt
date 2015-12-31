@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
+
+# Import Python libs
+from __future__ import absolute_import
+
+# Import salt module
 from salt.modules import darwin_pkgutil
 
+# Import Salt Testing libs
 from salttesting import TestCase, skipIf
 from salttesting.mock import NO_MOCK, NO_MOCK_REASON, MagicMock, patch
 
@@ -17,10 +23,13 @@ class DarwingPkgutilTestCase(TestCase):
         # When
         mock_cmd = MagicMock(return_value=r_output)
         with patch.dict(darwin_pkgutil.__salt__, {'cmd.run_stdout': mock_cmd}):
-            output = darwin_pkgutil.list()
+            output = darwin_pkgutil.list_()
 
         # Then
-        mock_cmd.assert_called_with("/usr/sbin/pkgutil --pkgs")
+        mock_cmd.assert_called_with(
+            ['/usr/sbin/pkgutil', '--pkgs'],
+            python_shell=False
+        )
 
     def test_list_installed_output(self):
         # Given
@@ -29,7 +38,7 @@ class DarwingPkgutilTestCase(TestCase):
         # When
         mock_cmd = MagicMock(return_value=r_output)
         with patch.dict(darwin_pkgutil.__salt__, {'cmd.run_stdout': mock_cmd}):
-            output = darwin_pkgutil.list()
+            output = darwin_pkgutil.list_()
 
         # Then
         self.assertEqual(output, r_output)

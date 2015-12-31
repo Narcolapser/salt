@@ -108,7 +108,7 @@ def __virtual__():
     '''
     if __catalina_home() or _auth('dummy'):
         return 'tomcat'
-    return False
+    return (False, 'Tomcat execution module not loaded: neither Tomcat installed locally nor tomcat-manager credentials set in grains/pillar/config.')
 
 
 def __catalina_home():
@@ -170,6 +170,14 @@ def _auth(uri):
     digest.add_password(realm='Tomcat Manager Application', uri=uri,
             user=user, passwd=password)
     return _build_opener(basic, digest)
+
+
+def _extract_version(war):
+    '''
+    extract the version from the war name
+    '''
+    version = re.findall("-([\\d.-]+)$", os.path.basename(war).replace('.war', ''))
+    return version[0] if len(version) == 1 else None
 
 
 def _wget(cmd, opts=None, url='http://localhost:8080/manager', timeout=180):
@@ -575,11 +583,7 @@ def deploy_war(war,
     else:
         tfile = war
 
-    version_extract = re.findall("\\d+.\\d+.\\d+?", os.path.basename(war).replace('.war', ''))
-    if len(version_extract) == 1:
-        version_string = version_extract[0]
-    else:
-        version_string = None
+    version_string = _extract_version(war)
 
     # Prepare options
     opts = {

@@ -125,8 +125,7 @@ from salt.ext.six import string_types
 import salt.utils
 from salt.modules.cron import (
     _needs_change,
-    _cron_matched,
-    SALT_CRON_NO_IDENTIFIER
+    _cron_matched
 )
 
 
@@ -138,6 +137,7 @@ def _check_cron(user,
                 month=None,
                 dayweek=None,
                 comment=None,
+                commented=None,
                 identifier=None):
     '''
     Return the changes
@@ -154,6 +154,8 @@ def _check_cron(user,
         dayweek = str(dayweek).lower()
     if identifier is not None:
         identifier = str(identifier)
+    if commented is not None:
+        commented = commented is True
     if cmd is not None:
         cmd = str(cmd)
     lst = __salt__['cron.list_tab'](user)
@@ -163,7 +165,8 @@ def _check_cron(user,
                     ((cron['minute'], minute), (cron['hour'], hour),
                      (cron['daymonth'], daymonth), (cron['month'], month),
                      (cron['dayweek'], dayweek), (cron['identifier'], identifier),
-                     (cron['cmd'], cmd), (cron['comment'], comment))]):
+                     (cron['cmd'], cmd), (cron['comment'], comment),
+                     (cron['commented'], commented))]):
                 return 'update'
             return 'present'
     return 'absent'
@@ -217,7 +220,8 @@ def present(name,
             month='*',
             dayweek='*',
             comment=None,
-            identifier=None):
+            commented=False,
+            identifier=False):
     '''
     Verifies that the specified cron job is present for the specified user.
     For more advanced information about what exactly can be set in the cron
@@ -252,13 +256,19 @@ def present(name,
     comment
         User comment to be added on line previous the cron job
 
+    commented
+        The cron job is set commented (prefixed with ``#DISABLED#``).
+        Defaults to False.
+
+        .. versionadded:: Boron
+
     identifier
         Custom-defined identifier for tracking the cron line for future crontab
         edits. This defaults to the state id
     '''
     name = ' '.join(name.strip().split())
-    if not identifier:
-        identifier = SALT_CRON_NO_IDENTIFIER
+    if identifier is False:
+        identifier = name
     ret = {'changes': {},
            'comment': '',
            'name': name,
@@ -272,6 +282,7 @@ def present(name,
                              month=month,
                              dayweek=dayweek,
                              comment=comment,
+                             commented=commented,
                              identifier=identifier)
         ret['result'] = None
         if status == 'absent':
@@ -291,6 +302,7 @@ def present(name,
                                     dayweek=dayweek,
                                     cmd=name,
                                     comment=comment,
+                                    commented=commented,
                                     identifier=identifier)
     if data == 'present':
         ret['comment'] = 'Cron {0} already present'.format(name)
@@ -313,7 +325,7 @@ def present(name,
 
 def absent(name,
            user='root',
-           identifier=None,
+           identifier=False,
            **kwargs):
     '''
     Verifies that the specified cron job is absent for the specified user; only
@@ -335,8 +347,8 @@ def absent(name,
     ###       of unsupported arguments will result in a traceback.
 
     name = ' '.join(name.strip().split())
-    if not identifier:
-        identifier = SALT_CRON_NO_IDENTIFIER
+    if identifier is False:
+        identifier = name
     ret = {'name': name,
            'result': True,
            'changes': {},
@@ -525,14 +537,15 @@ def file(name,
         return ret
 
     if ret['changes']:
+        cron_ret = __salt__['cron.write_cron_file_verbose'](user, cron_path)
         ret['changes'] = {'diff': ret['changes']['diff']}
         ret['comment'] = 'Crontab for user {0} was updated'.format(user)
     elif ret['result']:
+        cron_ret = None
         ret['comment'] = 'Crontab for user {0} is in the correct ' \
                          'state'.format(user)
 
-    cron_ret = __salt__['cron.write_cron_file_verbose'](user, cron_path)
-    if cron_ret['retcode']:
+    if cron_ret and cron_ret['retcode']:
         ret['comment'] = 'Unable to update user {0} crontab {1}.' \
                          ' Error: {2}'.format(user, cron_path, cron_ret['stderr'])
         ret['result'] = False

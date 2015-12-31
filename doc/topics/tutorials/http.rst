@@ -2,8 +2,9 @@ HTTP Modules
 ============
 
 This tutorial demonstrates using the various HTTP modules available in Salt.
-These modules wrap the Python ``urllib2`` and ``requests`` libraries, extending
-them in a manner that is more consistent with Salt workflows.
+These modules wrap the Python ``tornado``, ``urllib2``, and ``requests``
+libraries, extending them in a manner that is more consistent with Salt
+workflows.
 
 The ``salt.utils.http`` Library
 -------------------------------
@@ -26,13 +27,20 @@ This library can be imported with:
 Configuring Libraries
 ~~~~~~~~~~~~~~~~~~~~~
 
-This library can make use of either ``urllib2``, which ships with Python, or
-``requests``, which can be installed separately. By default, ``urllib2`` will
-be used. In order to switch to ``requests``, set the following variable:
+This library can make use of either ``tornado``, which is required by Salt,
+``urllib2``, which ships with Python, or ``requests``, which can be installed
+separately. By default, ``tornado`` will be used. In order to switch to
+``urllib2``, set the following variable:
 
 .. code-block:: yaml
 
-    requests_lib: True
+    backend: urllib2
+
+In order to switch to ``requests``, set the following variable:
+
+.. code-block:: yaml
+
+    backend: requests
 
 This can be set in the master or minion configuration file, or passed as an
 option directly to any ``http.query()`` functions.
@@ -42,8 +50,9 @@ option directly to any ``http.query()`` functions.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This function forms a basic query, but with some add-ons not present in the
-``urllib2`` and ``requests`` libraries. Not all functionality currently
-available in these libraries has been added, but can be in future iterations.
+``tornado``, ``urllib2``, and ``requests`` libraries. Not all functionality
+currently available in these libraries has been added, but can be in future
+iterations.
 
 A basic query can be performed by calling this function with no more than a
 single URL:
@@ -59,8 +68,8 @@ be overridden with the ``method`` argument:
 
     salt.utils.http.query('http://example.com/delete/url', 'DELETE')
 
-When using the ``POST`` method (and others, such ``PUT``), extra data is usually
-sent as well. This data can be either sent directly, in whatever format is
+When using the ``POST`` method (and others, such as ``PUT``), extra data is usually
+sent as well. This data can be sent directly, in whatever format is
 required by the remote server (XML, JSON, plain text, etc).
 
 .. code-block:: python
@@ -137,8 +146,8 @@ However, this can be changed to ``master`` if necessary.
     )
 
 Headers may also be passed through, either as a ``header_list``, a
-``header_dict`` or as a ``header_file``. As with the ``data_file``, the
-``header_file`` may also  be templated. Take note that because HTTP headers are
+``header_dict``, or as a ``header_file``. As with the ``data_file``, the
+``header_file`` may also be templated. Take note that because HTTP headers are
 normally syntactically-correct YAML, they will automatically be imported as an
 a Python dict.
 
@@ -275,6 +284,35 @@ as required. However, each must individually be turned on.
 The return from these will be found in the return dict as ``status``,
 ``headers`` and ``text``, respectively.
 
+Writing Return Data to Files
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It is possible to write either the return data or headers to files, as soon as
+the response is received from the server, but specifying file locations via the
+``text_out`` or ``headers_out`` arguments. ``text`` and ``headers`` do not need
+to be returned to the user in order to do this.
+
+.. code-block:: python
+
+    salt.utils.http.query(
+        'http://example.com',
+        text=False,
+        headers=False,
+        text_out='/path/to/url_download.txt',
+        headers_out='/path/to/headers_download.txt',
+    )
+
+SSL Verification
+~~~~~~~~~~~~~~~~
+By default, this function will verify SSL certificates. However, for testing or
+debugging purposes, SSL verification can be turned off.
+
+.. code-block:: python
+
+    salt.utils.http.query(
+        'https://example.com',
+        verify_ssl=False,
+    )
+
 CA Bundles
 ~~~~~~~~~~
 The ``requests`` library has its own method of detecting which CA (certficate
@@ -292,18 +330,57 @@ using the ``ca_bundle`` variable.
         ca_bundle='/path/to/ca_bundle.pem',
     )
 
-SSL Verification
-~~~~~~~~~~~~~~~~
+Updating CA Bundles
++++++++++++++++++++
+The ``update_ca_bundle()`` function can be used to update the bundle file at a
+specified location. If the target location is not specified, then it will
+attempt to auto-detect the location of the bundle file. If the URL to download
+the bundle from does not exist, a bundle will be downloaded from the cURL
+website.
 
-By default, this function will verify SSL certificates. However, for testing or
-debugging purposes, SSL verification can be turned off.
+CAUTION: The ``target`` and the ``source`` should always be specified! Failure
+to specify the ``target`` may result in the file being written to the wrong
+location on the local system. Failure to specify the ``source`` may cause the
+upstream URL to receive excess unnecessary traffic, and may cause a file to be
+download which is hazardous or does not meet the needs of the user.
 
 .. code-block:: python
 
-    salt.utils.http.query(
-        'https://example.com',
-        ssl_verify=False,
+    salt.utils.http.update_ca_bundle(
+        target='/path/to/ca-bundle.crt',
+        source='https://example.com/path/to/ca-bundle.crt',
+        opts=__opts__,
     )
+
+The ``opts`` parameter should also always be specified. If it is, then the
+``target`` and the ``source`` may be specified in the relevant configuration
+file (master or minion) as ``ca_bundle`` and ``ca_bundle_url``, respectively.
+
+.. code-block:: yaml
+
+    ca_bundle: /path/to/ca-bundle.crt
+    ca_bundle_url: https://example.com/path/to/ca-bundle.crt
+
+If Salt is unable to auto-detect the location of the CA bundle, it will raise
+an error.
+
+The ``update_ca_bundle()`` function can also be passed a string or a list of
+strings which represent files on the local system, which should be appended (in
+the specified order) to the end of the CA bundle file. This is useful in
+environments where private certs need to be made available, and are not
+otherwise reasonable to add to the bundle file.
+
+.. code-block:: python
+
+    salt.utils.http.update_ca_bundle(
+        opts=__opts__,
+        merge_files=[
+            '/etc/ssl/private_cert_1.pem',
+            '/etc/ssl/private_cert_2.pem',
+            '/etc/ssl/private_cert_3.pem',
+        ]
+    )
+
 
 Test Mode
 ~~~~~~~~~

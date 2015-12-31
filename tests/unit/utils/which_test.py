@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 # Import python libs
+from __future__ import absolute_import
 import os
 
 # Import Salt Testing libs
@@ -56,11 +57,12 @@ class TestWhich(integration.TestCase):
         with patch.dict(os.environ, {'PATH': '/bin'}):
             # Let's also patch is_windows to return True
             with patch('salt.utils.is_windows', lambda: True):
-                self.assertEqual(
-                    salt.utils.which('this-binary-exists-under-windows'),
-                    # The returned path should return the .exe suffix
-                    '/bin/this-binary-exists-under-windows.EXE'
-                )
+                with patch('os.path.isfile', lambda x: True):
+                    self.assertEqual(
+                        salt.utils.which('this-binary-exists-under-windows'),
+                        # The returned path should return the .exe suffix
+                        '/bin/this-binary-exists-under-windows.EXE'
+                    )
 
     @patch('os.access')
     def test_missing_binary_in_windows(self, osaccess):
@@ -69,9 +71,9 @@ class TestWhich(integration.TestCase):
             False,
             # The second, iterating through $PATH, should also return False,
             # still checking for Linux
-            False,
-            # Lastly return True, this is the windows check.
-            True
+            # which() will add 4 extra paths to the given one, os.access will
+            # be called 5 times
+            False, False, False, False, False
         ]
         # Let's patch os.environ to provide a custom PATH variable
         with patch.dict(os.environ, {'PATH': '/bin'}):
@@ -110,11 +112,12 @@ class TestWhich(integration.TestCase):
                                      '.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY'}):
             # Let's also patch is_windows to return True
             with patch('salt.utils.is_windows', lambda: True):
-                self.assertEqual(
-                    salt.utils.which('this-binary-exists-under-windows'),
-                    # The returned path should return the .exe suffix
-                    '/bin/this-binary-exists-under-windows.CMD'
-                )
+                with patch('os.path.isfile', lambda x: True):
+                    self.assertEqual(
+                        salt.utils.which('this-binary-exists-under-windows'),
+                        # The returned path should return the .exe suffix
+                        '/bin/this-binary-exists-under-windows.CMD'
+                    )
 
 
 if __name__ == '__main__':

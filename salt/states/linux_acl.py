@@ -4,27 +4,35 @@ Linux File Access Control Lists
 
 Ensure a Linux ACL is present
 
-  .. code-block:: yaml
-    root:
-      acl.present:
-        - name: /root
-        - acl_type: users
-        - acl_name: damian
-        - perms: rwx
+.. code-block:: yaml
+
+     root:
+       acl.present:
+         - name: /root
+         - acl_type: user
+         - acl_name: damian
+         - perms: rwx
 
 Ensure a Linux ACL does not exist
 
-  .. code-block:: yaml
-    root:
-      acl.absent:
-        - name: /root
-        - acl_type: user
-        - acl_name: damian
-        - perms: rwx
+.. code-block:: yaml
+
+     root:
+       acl.absent:
+         - name: /root
+         - acl_type: user
+         - acl_name: damian
+         - perms: rwx
 '''
+
+# Import Python libs
+from __future__ import absolute_import
 
 # Import salt libs
 import salt.utils
+
+# Import 3rd-party libs
+import salt.ext.six as six
 
 __virtualname__ = 'acl'
 
@@ -49,12 +57,20 @@ def present(name, acl_type, acl_name='', perms='', recurse=False):
            'comment': ''}
 
     _octal = {'r': 4, 'w': 2, 'x': 1}
-    _current_perms = __salt__['acl.getfacl'](name)
 
-    if _current_perms[name].get(acl_type, None):
+    __current_perms = __salt__['acl.getfacl'](name)
+
+    if acl_type.startswith(('d:', 'default:')):
+        _acl_type = ':'.join(acl_type.split(':')[1:])
+        _current_perms = __current_perms[name].get('defaults', {})
+    else:
+        _acl_type = acl_type
+        _current_perms = __current_perms[name]
+
+    if _current_perms.get(_acl_type, None):
         try:
-            user = [i for i in _current_perms[name][acl_type] if i.keys()[0] == acl_name].pop()
-        except (AttributeError, IndexError):
+            user = [i for i in _current_perms[_acl_type] if next(six.iterkeys(i)) == acl_name].pop()
+        except (AttributeError, IndexError, StopIteration):
             user = None
 
         if user:
@@ -98,11 +114,18 @@ def absent(name, acl_type, acl_name='', perms='', recurse=False):
            'changes': {},
            'comment': ''}
 
-    _current_perms = __salt__['acl.getfacl'](name)
+    __current_perms = __salt__['acl.getfacl'](name)
 
-    if _current_perms[name].get(acl_type, None):
+    if acl_type.startswith(('d:', 'default:')):
+        _acl_type = ':'.join(acl_type.split(':')[1:])
+        _current_perms = __current_perms[name].get('defaults', {})
+    else:
+        _acl_type = acl_type
+        _current_perms = __current_perms[name]
+
+    if _current_perms.get(_acl_type, None):
         try:
-            user = [i for i in _current_perms[name][acl_type] if i.keys()[0] == acl_name].pop()
+            user = [i for i in _current_perms[_acl_type] if next(six.iterkeys(i)) == acl_name].pop()
         except IndexError:
             user = None
 

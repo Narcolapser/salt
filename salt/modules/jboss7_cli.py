@@ -36,12 +36,18 @@ Example:
 
 '''
 
+# Import Python libs
+from __future__ import absolute_import
 import logging
 import re
 import pprint
 import time
 
+# Import Salt libs
 from salt.exceptions import CommandExecutionError
+
+# Import 3rd-party libs
+import salt.ext.six as six
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +118,7 @@ def run_operation(jboss_config, operation, fail_on_error=True, retries=1):
             cli_result['success'] = False
             match = re.search(r'^(JBAS\d+):', cli_result['failure-description'])
             cli_result['err_code'] = match.group(1)
+            cli_result['stdout'] = cli_command_result['stdout']
         else:
             if fail_on_error:
                 raise CommandExecutionError('''Command execution failed, return code={retcode}, stdout='{stdout}', stderr='{stderr}' '''.format(**cli_command_result))
@@ -131,9 +138,9 @@ def __call_cli(jboss_config, command, retries=1):
         '--connect',
         '--controller="{0}"'.format(jboss_config['controller'])
     ]
-    if 'cli_user' in jboss_config.keys():
+    if 'cli_user' in six.iterkeys(jboss_config):
         command_segments.append('--user="{0}"'.format(jboss_config['cli_user']))
-    if 'cli_password' in jboss_config.keys():
+    if 'cli_password' in six.iterkeys(jboss_config):
         command_segments.append('--password="{0}"'.format(jboss_config['cli_password']))
     command_segments.append('--command="{0}"'.format(__escape_command(command)))
     cli_script = ' '.join(command_segments)
@@ -335,11 +342,14 @@ def __is_long(token):
 
 
 def __get_long(token):
-    return long(token[0:-1])
+    if six.PY2:
+        return long(token[0:-1])  # pylint: disable=incompatible-py3-code
+    else:
+        return int(token[0:-1])
 
 
 def __is_datatype(token):
-    return token in ("INT", "BOOLEAN", "STRING", "OBJECT")
+    return token in ("INT", "BOOLEAN", "STRING", "OBJECT", "LONG")
 
 
 def __get_datatype(token):

@@ -3,10 +3,12 @@
     :codeauthor: :email:`Jayesh Kariya <jayeshk@saltstack.com>`
 '''
 
+# Import Python libs
+from __future__ import absolute_import
+
 # Import Salt Testing Libs
-from salttesting import TestCase
-from salttesting.mock import MagicMock, patch
-#-------- from salt.exceptions import SaltInvocationError, CommandExecutionError
+from salttesting import TestCase, skipIf
+from salttesting.mock import MagicMock, patch, NO_MOCK, NO_MOCK_REASON
 
 # Import Salt Libs
 from salt.modules import groupadd
@@ -15,6 +17,7 @@ from salt.modules import groupadd
 import grp
 
 
+@skipIf(NO_MOCK, NO_MOCK_REASON)
 class GroupAddTestCase(TestCase):
     '''
     TestCase for salt.modules.groupadd

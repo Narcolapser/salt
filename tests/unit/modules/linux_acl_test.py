@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 
+# Import Pytohn libs
+from __future__ import absolute_import
+
 # Import Salt Testing libs
 from salttesting import skipIf, TestCase
 from salttesting.helpers import ensure_in_syspath
@@ -126,7 +129,7 @@ class LinuxAclTestCase(TestCase):
 
     def test_modfacl__recursive_w_multiple_args(self):
         linux_acl.modfacl(*(self.user_acl + self.files), recursive=True)
-        self.cmdrun.assert_called_once_with('setfacl -m -R ' + ' '.join([self.user_acl_cmd] + self.files), python_shell=False)
+        self.cmdrun.assert_called_once_with('setfacl -R -m ' + ' '.join([self.user_acl_cmd] + self.files), python_shell=False)
 
     def test_delfacl_wo_args(self):
         for acl in [self.u_acl, self.user_acl, self.g_acl, self.group_acl]:

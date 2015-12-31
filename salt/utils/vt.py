@@ -29,9 +29,10 @@ import errno
 import signal
 import select
 import logging
-import subprocess
 
-if subprocess.mswindows:
+mswindows = (sys.platform == "win32")
+
+if mswindows:
     # pylint: disable=F0401,W0611
     from win32file import ReadFile, WriteFile
     from win32pipe import PeekNamedPipe
@@ -46,6 +47,7 @@ else:
     import resource
 
 # Import salt libs
+import salt.utils
 from salt.ext.six import string_types
 from salt.log.setup import LOG_LEVELS
 
@@ -175,7 +177,7 @@ class Terminal(object):
             self.stream_stdout = stream_stdout
         else:
             raise TerminalException(
-                'Don\'t know how to handle {0!r} as the VT\'s '
+                'Don\'t know how to handle \'{0}\' as the VT\'s '
                 '\'stream_stdout\' parameter.'.format(stream_stdout)
             )
 
@@ -194,7 +196,7 @@ class Terminal(object):
             self.stream_stderr = stream_stderr
         else:
             raise TerminalException(
-                'Don\'t know how to handle {0!r} as the VT\'s '
+                'Don\'t know how to handle \'{0}\' as the VT\'s '
                 '\'stream_stderr\' parameter.'.format(stream_stderr)
             )
         # <---- Direct Streaming Setup ---------------------------------------
@@ -217,7 +219,12 @@ class Terminal(object):
             'Child Forked! PID: {0}  STDOUT_FD: {1}  STDERR_FD: '
             '{2}'.format(self.pid, self.child_fd, self.child_fde)
         )
-        log.debug('Terminal Command: {0}'.format(' '.join(self.args)))
+        terminal_command = ' '.join(self.args)
+        if 'decode("base64")' in terminal_command or 'base64.b64decode(' in terminal_command:
+            log.debug('VT: Salt-SSH SHIM Terminal Command executed. Logged to TRACE')
+            log.trace('Terminal Command: {0}'.format(terminal_command))
+        else:
+            log.debug('Terminal Command: {0}'.format(terminal_command))
         # <---- Spawn our terminal -------------------------------------------
 
         # ----- Setup Logging ----------------------------------------------->
@@ -343,7 +350,7 @@ class Terminal(object):
     # <---- Context Manager Methods ------------------------------------------
 
 # ----- Platform Specific Methods ------------------------------------------->
-    if subprocess.mswindows:
+    if mswindows:
         # ----- Windows Methods --------------------------------------------->
         def _execute(self):
             raise NotImplementedError
@@ -481,6 +488,7 @@ class Terminal(object):
                 # Close parent FDs
                 os.close(stdout_parent_fd)
                 os.close(stderr_parent_fd)
+                salt.utils.reinit_crypto()
 
                 # ----- Make STDOUT the controlling PTY --------------------->
                 child_name = os.ttyname(stdout_child_fd)
@@ -523,13 +531,15 @@ class Terminal(object):
                     os.close(tty_fd)
 
                 # Verify we now have a controlling tty.
-                tty_fd = os.open('/dev/tty', os.O_WRONLY)
-                if tty_fd < 0:
-                    raise TerminalException(
-                        'Could not open controlling tty, /dev/tty'
-                    )
-                else:
-                    os.close(tty_fd)
+                if os.name != 'posix':
+                    # Only do this check in not BSD-like operating systems. BSD-like operating systems breaks at this point
+                    tty_fd = os.open('/dev/tty', os.O_WRONLY)
+                    if tty_fd < 0:
+                        raise TerminalException(
+                            'Could not open controlling tty, /dev/tty'
+                        )
+                    else:
+                        os.close(tty_fd)
                 # <---- Make STDOUT the controlling PTY ----------------------
 
                 # ----- Duplicate Descriptors ------------------------------->
@@ -539,6 +549,7 @@ class Terminal(object):
                 # <---- Duplicate Descriptors --------------------------------
             else:
                 # Parent. Close Child PTY's
+                salt.utils.reinit_crypto()
                 os.close(stdout_child_fd)
                 os.close(stderr_child_fd)
 
@@ -625,7 +636,9 @@ class Terminal(object):
             if self.child_fde in rlist:
                 try:
                     stderr = self._translate_newlines(
-                        os.read(self.child_fde, maxsize)
+                        salt.utils.to_str(
+                            os.read(self.child_fde, maxsize)
+                        )
                     )
 
                     if not stderr:
@@ -656,7 +669,9 @@ class Terminal(object):
             if self.child_fd in rlist:
                 try:
                     stdout = self._translate_newlines(
-                        os.read(self.child_fd, maxsize)
+                        salt.utils.to_str(
+                            os.read(self.child_fd, maxsize)
+                        )
                     )
 
                     if not stdout:

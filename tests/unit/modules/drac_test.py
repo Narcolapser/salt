@@ -3,6 +3,9 @@
     :codeauthor: :email:`Rupesh Tare <rupesht@saltstack.com>`
 '''
 
+# Import Python libs
+from __future__ import absolute_import
+
 # Import Salt Testing Libs
 from salttesting import TestCase, skipIf
 from salttesting.mock import (
@@ -95,7 +98,7 @@ class DracTestCase(TestCase):
         mock = MagicMock(return_value={'retcode': 0,
                                        'stdout': 'cfgUserAdminUserName=value'})
         with patch.dict(drac.__salt__, {'cmd.run_all': mock}):
-            self.assertEqual(drac.list_users(), {'value': {'index': 11}})
+            self.assertEqual(drac.list_users(), {'value': {'index': 16}})
 
     def test_delete_user(self):
         '''

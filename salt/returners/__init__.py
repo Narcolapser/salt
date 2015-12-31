@@ -21,7 +21,7 @@ def get_returner_options(virtualname=None,
 
     :param str virtualname: The returner virtualname (as returned
         by __virtual__()
-    :param ret: result of the module that ran. dit-like object
+    :param ret: result of the module that ran. dict-like object
 
         May contain a `ret_config` key pointing to a string
         If a `ret_config` is specified, config options are read from::
@@ -90,13 +90,18 @@ def get_returner_options(virtualname=None,
     _options.update(
         _fetch_profile_opts(
             cfg,
-            __salt__,
             virtualname,
+            __salt__,
             _options,
             profile_attr,
             profile_attrs
         )
     )
+
+    # override some values with relevant options from
+    # keyword arguments passed via return_kwargs
+    if ret and 'ret_kwargs' in ret:
+        _options.update(ret['ret_kwargs'])
 
     return _options
 

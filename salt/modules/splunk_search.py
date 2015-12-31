@@ -2,7 +2,7 @@
 '''
 Module for interop with the Splunk API
 
-.. versionadded:: 2015.2
+.. versionadded:: 2015.5.0
 
 :depends:   - splunk-sdk python module
 :configuration: Configure this module by specifying the name of a configuration
@@ -19,14 +19,15 @@ Module for interop with the Splunk API
             host: example.splunkcloud.com
             port: 8080
 '''
-from __future__ import absolute_import
 
 # Import python libs
+from __future__ import absolute_import
 import logging
 import yaml
 import urllib
 
 # Import third party libs
+import salt.ext.six as six
 HAS_LIBS = False
 try:
     import splunklib.client
@@ -36,7 +37,6 @@ except ImportError:
     pass
 
 # Import salt libs
-from salt.ext.six import string_types
 from salt.utils.odict import OrderedDict
 
 log = logging.getLogger(__name__)
@@ -55,7 +55,8 @@ def __virtual__():
     '''
     if HAS_LIBS:
         return __virtualname__
-    return False
+    return (False, 'The splunk_search execution module failed to load: '
+        'requires both the requests and the splunk-sdk python library to be installed.')
 
 
 def _get_splunk(profile):
@@ -124,9 +125,9 @@ def update(name, profile="splunk", **kwargs):
     for key in sorted(kwargs):
         old_value = props.get(key, None)
         new_value = updates.get(key, None)
-        if isinstance(old_value, string_types):
+        if isinstance(old_value, six.string_types):
             old_value = old_value.strip()
-        if isinstance(new_value, string_types):
+        if isinstance(new_value, six.string_types):
             new_value = new_value.strip()
         if old_value != new_value:
             update_set[key] = new_value
@@ -165,7 +166,7 @@ def create(name, profile="splunk", **kwargs):
     _req_url = "{0}/servicesNS/{1}/search/saved/searches/{2}/acl".format(
         url, config.get("username"), urllib.quote(name)
     )
-    requests.post(_req_url, auth=auth, verify=False, data=data)
+    requests.post(_req_url, auth=auth, verify=True, data=data)
     return _get_splunk_search_props(search)
 
 
@@ -240,7 +241,7 @@ def list_all(prefix=None, app=None, owner=None, description_contains=None,
 
     # yaml magic to output OrderedDict
     def ordered_dict_presenter(dumper, data):
-        return dumper.represent_dict(data.items())
+        return dumper.represent_dict(six.iteritems(data))
     yaml.add_representer(
         OrderedDict, ordered_dict_presenter, Dumper=yaml.dumper.SafeDumper)
 
