@@ -68,7 +68,7 @@ def _gather_update_categories(updateCollection):
 class PyWinUpdater(object):
     def __init__(self, categories=None, skipUI=True, skipDownloaded=False,
             skipInstalled=True, skipReboot=False, skipPresent=False,
-            softwareUpdates=True, driverUpdates=False, skipHidden=True):
+            skipSoftwareUpdates=True, skipDriverUpdates=False, skipHidden=True):
         log.debug('CoInitializing the pycom system')
         pythoncom.CoInitialize()
 
@@ -175,26 +175,34 @@ class PyWinUpdater(object):
         search_string = ''
         searchParams = []
 
-        if self.skipInstalled:
+       if self.skipInstalled:
             searchParams.append('IsInstalled=0')
+        else:
+            searchParams.append('IsInstalled=1')
 
         if self.skipHidden:
             searchParams.append('IsHidden=0')
+        else:
+            searchParams.append('IsHidden=1')
 
         if self.skipReboot:
             searchParams.append('RebootRequired=0')
+        else:
+            searchParams.append('RebootRequired=1')
 
         if self.skipPresent:
             searchParams.append('IsPresent=0')
+        else:
+            searchParams.append('IsPresent=1')
 
         for i in searchParams:
             search_string += '{0} and '.format(i)
 
-        if self.softwareUpdates and self.driverUpdates:
+        if not self.skipSoftwareUpdates and not self.skipDriverUpdates:
             search_string += 'Type=\'Software\' or Type=\'Driver\''
-        elif self.softwareUpdates:
+        elif not self.softwareUpdates:
             search_string += 'Type=\'Software\''
-        elif self.driverUpdates:
+        elif not self.driverUpdates:
             search_string += 'Type=\'Driver\''
         else:
             return False
